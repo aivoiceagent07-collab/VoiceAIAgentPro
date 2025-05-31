@@ -50,11 +50,16 @@ const ContactForm = () => {
   };
 
   return (
-    <section id="contact" className="py-20 bg-gradient-to-br from-gray-50 to-blue-50">
+    <section 
+      id="contact" 
+      className="py-20 bg-gradient-to-br from-gray-50 to-blue-50"
+      role="region"
+      aria-labelledby="contact-heading"
+    >
       <div className="container mx-auto px-4">
         <div className="max-w-4xl mx-auto">
-          <div className="text-center mb-12">
-            <h2 className="text-4xl md:text-5xl font-bold text-gray-900 mb-6">
+          <div className="text-center mb-12 animate-fade-in-up">
+            <h2 id="contact-heading" className="text-4xl md:text-5xl font-bold text-gray-900 mb-6">
               Ready to Transform Your Business?
             </h2>
             <p className="text-xl text-gray-600">
@@ -62,80 +67,86 @@ const ContactForm = () => {
             </p>
           </div>
           
-          <Card className="shadow-2xl border-0 bg-white">
+          <Card className="shadow-2xl border-0 bg-white animate-scale-in animate-delay-200">
             <CardHeader className="bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-t-lg">
               <CardTitle className="text-2xl text-center flex items-center justify-center">
-                <Building2 className="mr-3 h-6 w-6" />
+                <Building2 className="mr-3 h-6 w-6" aria-hidden="true" />
                 Client Inquiry Form
               </CardTitle>
             </CardHeader>
             
             <CardContent className="p-8">
-              <form onSubmit={handleSubmit} className="space-y-6">
+              <form onSubmit={handleSubmit} className="space-y-6" noValidate>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    <label htmlFor="name" className="block text-sm font-semibold text-gray-700 mb-2">
                       Full Name *
                     </label>
                     <Input
+                      id="name"
                       required
                       value={formData.name}
                       onChange={(e) => handleChange('name', e.target.value)}
                       placeholder="Enter your full name"
-                      className="h-12"
+                      className="h-12 focus-outline"
+                      aria-describedby="name-error"
                     />
                   </div>
                   
                   <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    <label htmlFor="email" className="block text-sm font-semibold text-gray-700 mb-2">
                       Business Email *
                     </label>
                     <Input
+                      id="email"
                       type="email"
                       required
                       value={formData.email}
                       onChange={(e) => handleChange('email', e.target.value)}
                       placeholder="your.email@company.com"
-                      className="h-12"
+                      className="h-12 focus-outline"
+                      aria-describedby="email-error"
                     />
                   </div>
                 </div>
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    <label htmlFor="company" className="block text-sm font-semibold text-gray-700 mb-2">
                       Company Name *
                     </label>
                     <Input
+                      id="company"
                       required
                       value={formData.company}
                       onChange={(e) => handleChange('company', e.target.value)}
                       placeholder="Your company name"
-                      className="h-12"
+                      className="h-12 focus-outline"
                     />
                   </div>
                   
                   <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    <label htmlFor="phone" className="block text-sm font-semibold text-gray-700 mb-2">
                       Phone Number
                     </label>
                     <Input
+                      id="phone"
                       type="tel"
                       value={formData.phone}
                       onChange={(e) => handleChange('phone', e.target.value)}
                       placeholder="+1 (555) 123-4567"
-                      className="h-12"
+                      className="h-12 focus-outline"
                     />
                   </div>
                 </div>
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    <label htmlFor="employees" className="block text-sm font-semibold text-gray-700 mb-2">
                       Company Size
                     </label>
                     <Select value={formData.employees} onValueChange={(value) => handleChange('employees', value)}>
-                      <SelectTrigger className="h-12">
+                      <SelectTrigger id="employees" className="h-12 focus-outline" aria-label="Select company size">
                         <SelectValue placeholder="Select company size" />
                       </SelectTrigger>
                       <SelectContent>
@@ -149,11 +160,11 @@ const ContactForm = () => {
                   </div>
                   
                   <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    <label htmlFor="useCase" className="block text-sm font-semibold text-gray-700 mb-2">
                       Primary Use Case
                     </label>
                     <Select value={formData.useCase} onValueChange={(value) => handleChange('useCase', value)}>
-                      <SelectTrigger className="h-12">
+                      <SelectTrigger id="useCase" className="h-12 focus-outline" aria-label="Select primary use case">
                         <SelectValue placeholder="Select primary use case" />
                       </SelectTrigger>
                       <SelectContent>
@@ -169,19 +180,28 @@ const ContactForm = () => {
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  <label htmlFor="message" className="block text-sm font-semibold text-gray-700 mb-2">
                     Project Requirements & Goals
                   </label>
                   <Textarea
+                    id="message"
                     value={formData.message}
                     onChange={(e) => handleChange('message', e.target.value)}
                     placeholder="Tell us about your specific requirements, current challenges, and what you hope to achieve with AI Voice Agents..."
-                    className="min-h-[120px] resize-none"
+                    className="min-h-[120px] resize-none focus-outline"
+                    aria-describedby="message-help"
                   />
+                  <div id="message-help" className="text-sm text-gray-500 mt-1">
+                    Optional: Provide details about your needs to help us prepare for your consultation.
+                  </div>
                 </div>
                 
-                <div className="flex items-center space-x-4 p-4 bg-blue-50 rounded-lg">
-                  <div className="flex space-x-2">
+                <div 
+                  className="flex items-center space-x-4 p-4 bg-blue-50 rounded-lg"
+                  role="note"
+                  aria-label="Free consultation information"
+                >
+                  <div className="flex space-x-2" aria-hidden="true">
                     <Phone className="h-5 w-5 text-blue-600" />
                     <Users className="h-5 w-5 text-purple-600" />
                   </div>
@@ -192,11 +212,15 @@ const ContactForm = () => {
                 
                 <Button 
                   type="submit" 
-                  className="w-full h-14 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white text-lg font-semibold rounded-lg transition-all duration-300 transform hover:scale-105"
+                  className="w-full h-14 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white text-lg font-semibold rounded-lg transition-all duration-300 transform hover:scale-105 focus-outline"
+                  aria-describedby="submit-help"
                 >
                   Submit Inquiry & Get Free Consultation
-                  <Send className="ml-2 h-5 w-5" />
+                  <Send className="ml-2 h-5 w-5" aria-hidden="true" />
                 </Button>
+                <div id="submit-help" className="text-sm text-gray-500 text-center">
+                  By submitting this form, you agree to be contacted by our team regarding your AI Voice Agent inquiry.
+                </div>
               </form>
             </CardContent>
           </Card>

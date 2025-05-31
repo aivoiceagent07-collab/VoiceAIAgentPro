@@ -44,10 +44,10 @@ const Features = () => {
   ];
 
   return (
-    <section className="py-20 bg-white">
+    <section className="py-20 bg-white" role="region" aria-labelledby="features-heading">
       <div className="container mx-auto px-4">
-        <div className="text-center mb-16">
-          <h2 className="text-4xl md:text-5xl font-bold text-gray-900 mb-6">
+        <div className="text-center mb-16 animate-fade-in-up">
+          <h2 id="features-heading" className="text-4xl md:text-5xl font-bold text-gray-900 mb-6">
             Transform Your Operations
           </h2>
           <p className="text-xl text-gray-600 max-w-3xl mx-auto">
@@ -60,11 +60,17 @@ const Features = () => {
           {features.map((feature, index) => (
             <Card 
               key={index} 
-              className="group hover:shadow-xl transition-all duration-300 border-0 bg-gradient-to-br from-gray-50 to-white hover:from-blue-50 hover:to-purple-50"
+              className={`group hover:shadow-xl transition-all duration-300 border-0 bg-gradient-to-br from-gray-50 to-white hover:from-blue-50 hover:to-purple-50 focus-within:ring-2 focus-within:ring-blue-500 focus-within:ring-offset-2 animate-fade-in-up animate-delay-${Math.min(600, 100 * (index + 1))}`}
+              tabIndex={0}
+              role="article"
+              aria-labelledby={`feature-${index}-title`}
             >
               <CardContent className="p-8">
                 <div className="flex items-center mb-6">
-                  <div className="p-3 bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg mr-4 group-hover:scale-110 transition-transform duration-300">
+                  <div 
+                    className="p-3 bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg mr-4 group-hover:scale-110 transition-transform duration-300"
+                    aria-hidden="true"
+                  >
                     <feature.icon className="h-6 w-6 text-white" />
                   </div>
                   <div className="text-sm font-semibold text-green-600 bg-green-100 px-3 py-1 rounded-full">
@@ -72,7 +78,10 @@ const Features = () => {
                   </div>
                 </div>
                 
-                <h3 className="text-xl font-bold text-gray-900 mb-4 group-hover:text-blue-600 transition-colors duration-300">
+                <h3 
+                  id={`feature-${index}-title`}
+                  className="text-xl font-bold text-gray-900 mb-4 group-hover:text-blue-600 transition-colors duration-300"
+                >
                   {feature.title}
                 </h3>
                 
