@@ -2,20 +2,20 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
 import { ArrowRight, Mic, Zap } from 'lucide-react';
+import Logo from './Logo';
 
 const Hero = () => {
   return (
     <section 
-      className="relative min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center px-4"
+      className="relative min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center px-4 pt-20"
       role="banner"
       aria-label="AI Voice Agents Hero Section"
     >
       <div className="absolute inset-0 bg-grid-pattern opacity-5" aria-hidden="true"></div>
       <div className="container mx-auto text-center relative z-10">
         <div className="max-w-4xl mx-auto">
-          <div className="flex items-center justify-center mb-6 space-x-2 animate-fade-in-up">
-            <Mic className="h-8 w-8 text-blue-600 animate-pulse" aria-hidden="true" />
-            <Zap className="h-6 w-6 text-purple-600" aria-hidden="true" />
+          <div className="flex items-center justify-center mb-8 animate-fade-in-up">
+            <Logo size="lg" />
           </div>
           
           <h1 className="text-5xl md:text-7xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent mb-6 leading-tight animate-fade-in-up animate-delay-200">
