@@ -1,27 +1,25 @@
-import { Toaster } from "@/components/ui/toaster";
-import { Toaster as Sonner } from "@/components/ui/sonner";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+
+import React from "react";
+import HeaderLogo from "./components/HeaderLogo";
 import Index from "./pages/Index";
-import NotFound from "./pages/NotFound";
+import "./components/HeaderLogo.css";
 
-const queryClient = new QueryClient();
-
-const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Index />} />
-          {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-          <Route path="*" element={<NotFound />} />
-        </Routes>
-      </BrowserRouter>
-    </TooltipProvider>
-  </QueryClientProvider>
-);
+function App() {
+  return (
+    <div className="min-h-screen bg-white">
+      {/* Header with Unified Logo */}
+      <header className="bg-white shadow-sm border-b backdrop-blur-sm bg-white/90">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-16">
+            <HeaderLogo />
+          </div>
+        </div>
+      </header>
+      
+      {/* Main content */}
+      <Index />
+    </div>
+  );
+}
 
 export default App;
