@@ -126,7 +126,13 @@ public class EmailService {
             headers.setBearerAuth(resendApiKey);
 
             Map<String, Object> body = new HashMap<>();
-            body.put("from", "AI Voice Agent Form <onboarding@resend.dev>");
+            
+            // If senderEmail is configured with a custom domain, use it. Otherwise, default to sandbox onboarding.
+            String fromAddress = (senderEmail != null && senderEmail.contains("@"))
+                    ? "AI Voice Agent Form <" + senderEmail + ">"
+                    : "AI Voice Agent Form <onboarding@resend.dev>";
+            body.put("from", fromAddress);
+            
             body.put("to", Collections.singletonList(toEmail));
             body.put("subject", subject);
             body.put("html", htmlBody);
