@@ -37,6 +37,9 @@ We organize the codebase into dedicated, clean workspaces:
 ├── documentation/         # Professional Architecture & Guides
 │   ├── architecture.md    # System design diagrams, sequence logic, and overrides
 │   ├── setup-guide.md     # Installation guidelines and local launch steps
+│   ├── work-log.md        # Daily progress log and project tracking log
+│   ├── doc-placeholder-1.md # Placeholder for first PDF reference content
+│   ├── doc-placeholder-2.md # Placeholder for second PDF reference content
 │   └── test_intent_flow.txt # Sample manual test cases for voice queries
 │
 └── README.md              # Global repository entry point (This file)
@@ -60,7 +63,7 @@ To run the application locally, follow these simplified steps. For more granular
    Add your `SARVAM_API_KEY` and `GROQ_API_KEY`.
 3. Start the Spring application:
    ```bash
-   ./mvnw spring-boot:run
+   mvn spring-boot:run
    ```
    *The backend will run on `http://localhost:8081`.*
 
@@ -78,6 +81,12 @@ To run the application locally, follow these simplified steps. For more granular
    npm run dev
    ```
    *The frontend will run on `http://localhost:8080` (or `http://localhost:5173`). Open the link in your browser to try the Continuous Voice AI demo!*
+
+---
+
+## 🗒 Project Tracker & Work Log
+
+Track our day-to-day progress, features deployed, and next objectives in the **[Daily Work Log](file:///Users/kalyansadhukhan/agentic-ai-world-voice/documentation/work-log.md)**.
 
 ---
 
