@@ -1,73 +1,92 @@
-# Welcome to your Lovable project
+# 📞 VoiceAIAgentPro
 
-## Project info
+[![Tech Stack](https://img.shields.io/badge/Tech_Stack-Spring_Boot_+_React-6db33f?logo=springboot&logoColor=white)](https://spring.io/projects/spring-boot)
+[![Language](https://img.shields.io/badge/Language-Java_+_TypeScript-blue?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
-**URL**: https://lovable.dev/projects/ea41619f-f162-4855-b3a0-46ac2ac42ef7
+An enterprise-grade, intelligent Voice AI Agent platform designed to automate appointment scheduling, customer inquiries, and data collection. The system is split into a modular Spring Boot Java backend state engine and a React/TypeScript/Vite single-page web interface.
 
-## How can I edit this code?
+---
 
-There are several ways of editing your application.
+## 🚀 Key Features
 
-**Use Lovable**
+* **Continuous Voice Interaction:** Talk naturally without clicking. The system automatically detects silence, compiles your message, and plays back receptionist responses.
+* **State-Machine Controlled Booking Engine:** Manages complex conversational state transitions (Booking, Confirmation, Post-Confirm, Reschedule) deterministically.
+* **Fast Path Override Rules:** Safe heuristics prevent infinite conversational loops and force-accept slot details if repetitive questioning occurs.
+* **Hybrid Multilingual Support:** Accepts and normalizes inputs across English, Hindi, Hinglish, and Bengali scripts.
+* **Integration Ecosystem:** Powered by **Sarvam AI APIs** for STT/TTS and **Groq (Llama 3.1 8B)** for reliable, structured JSON entity extraction.
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/ea41619f-f162-4855-b3a0-46ac2ac42ef7) and start prompting.
+---
 
-Changes made via Lovable will be committed automatically to this repo.
+## 📂 Repository Directory Layout
 
-**Use your preferred IDE**
+We organize the codebase into dedicated, clean workspaces:
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
+```
+├── backend/               # Spring Boot Application (Java 17, Maven)
+│   ├── src/               # Controller, DTO, Model, and Service classes
+│   ├── Dockerfile         # Dockerized deploy configuration
+│   └── pom.xml            # Maven dependency management
+│
+├── frontend/              # Single Page Application (React 18, Vite, TS)
+│   ├── src/               # Component libraries, pages, hooks, and styles
+│   ├── public/            # Assets and site metadata
+│   ├── vite.config.ts     # Vite compilation settings
+│   └── package.json       # Node package manager configurations
+│
+├── documentation/         # Professional Architecture & Guides
+│   ├── architecture.md    # System design diagrams, sequence logic, and overrides
+│   ├── setup-guide.md     # Installation guidelines and local launch steps
+│   └── test_intent_flow.txt # Sample manual test cases for voice queries
+│
+└── README.md              # Global repository entry point (This file)
 ```
 
-**Edit a file directly in GitHub**
+---
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+## ⚙️ Quick Start
 
-**Use GitHub Codespaces**
+To run the application locally, follow these simplified steps. For more granular details, see the [Local Setup Guide](file:///Users/kalyansadhukhan/agentic-ai-world-voice/documentation/setup-guide.md).
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+### 1. Launch the Backend
+1. Enter the backend folder:
+   ```bash
+   cd backend
+   ```
+2. Create your `.env` configuration file:
+   ```bash
+   cp .env.example .env
+   ```
+   Add your `SARVAM_API_KEY` and `GROQ_API_KEY`.
+3. Start the Spring application:
+   ```bash
+   ./mvnw spring-boot:run
+   ```
+   *The backend will run on `http://localhost:8081`.*
 
-## What technologies are used for this project?
+### 2. Launch the Frontend
+1. Open a new terminal tab and enter the frontend folder:
+   ```bash
+   cd frontend
+   ```
+2. Install the node modules:
+   ```bash
+   npm install
+   ```
+3. Start the dev server:
+   ```bash
+   npm run dev
+   ```
+   *The frontend will run on `http://localhost:8080` (or `http://localhost:5173`). Open the link in your browser to try the Continuous Voice AI demo!*
 
-This project is built with:
+---
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+## 📘 Comprehensive Architecture
 
-## How can I deploy this project?
+For a deep dive into how speech is converted, how inputs are validated, and the inner workings of our failsafe transition machine, please review the **[Architecture Documentation](file:///Users/kalyansadhukhan/agentic-ai-world-voice/documentation/architecture.md)**.
 
-Simply open [Lovable](https://lovable.dev/projects/ea41619f-f162-4855-b3a0-46ac2ac42ef7) and click on Share -> Publish.
+---
 
-## Can I connect a custom domain to my Lovable project?
+## 📄 License
 
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/tips-tricks/custom-domain#step-by-step-guide)
+This project is licensed under the MIT License - see the LICENSE file for details.

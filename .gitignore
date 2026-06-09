@@ -1,11 +1,15 @@
-node_modules/
-dist/
-build/
-.env
-.DS_Store
+# Frontend ignores
+frontend/node_modules/
+frontend/dist/
+frontend/build/
+frontend/.env
+frontend/.env.local
 
-# Backend
+# Backend ignores
 backend/target/
 backend/.env
 backend/.idea/
 backend/*.iml
+
+# General ignores
+.DS_Store
