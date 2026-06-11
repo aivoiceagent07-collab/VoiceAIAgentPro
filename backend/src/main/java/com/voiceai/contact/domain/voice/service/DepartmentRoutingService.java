@@ -29,16 +29,23 @@ public class DepartmentRoutingService {
         Map<String, String> rawExact = new HashMap<>();
         
         // General Physician
-        rawExact.put("पेट में दर्द", "General Physician");
-        rawExact.put("गैस की समस्या", "General Physician");
+        rawExact.put("सिर में दर्द", "General Physician");
+        rawExact.put("सर में दर्द", "General Physician");
         rawExact.put("सिर दर्द", "General Physician");
-        rawExact.put("सिरदर्द", "General Physician");
+        rawExact.put("सर दर्द", "General Physician");
+        rawExact.put("बुखार", "General Physician");
+        rawExact.put("उल्टी", "General Physician");
+        rawExact.put("उल्टी हो रही है", "General Physician");
+        rawExact.put("पेट में दर्द", "General Physician");
+        rawExact.put("पेट दर्द", "General Physician");
+        rawExact.put("गैस की समस्या", "General Physician");
+        rawExact.put("गैस", "General Physician");
+        rawExact.put("कमजोरी", "General Physician");
         rawExact.put("headache", "General Physician");
         rawExact.put("stomach pain", "General Physician");
         rawExact.put("stomach ache", "General Physician");
         rawExact.put("gas problem", "General Physician");
         rawExact.put("bukhar", "General Physician");
-        rawExact.put("बुखार", "General Physician");
         rawExact.put("जुकाम", "General Physician");
         rawExact.put("acidity", "General Physician");
         rawExact.put("stomach", "General Physician");
@@ -46,11 +53,33 @@ public class DepartmentRoutingService {
         rawExact.put("cold", "General Physician");
         rawExact.put("cough", "General Physician");
         rawExact.put("vomiting", "General Physician");
-        rawExact.put("उल्टी", "General Physician");
         rawExact.put("samanya", "General Physician");
+
+        // Orthopedic
+        rawExact.put("पैर में दर्द", "Orthopedic");
+        rawExact.put("पैर दर्द", "Orthopedic");
+        rawExact.put("घुटना दर्द", "Orthopedic");
+        rawExact.put("घुटने में दर्द", "Orthopedic");
+        rawExact.put("घुटने दर्द", "Orthopedic");
+        rawExact.put("हड्डी दर्द", "Orthopedic");
+        rawExact.put("कमर दर्द", "Orthopedic");
+        rawExact.put("पीठ दर्द", "Orthopedic");
+        rawExact.put("हाथ दर्द", "Orthopedic");
+        rawExact.put("कंधा दर्द", "Orthopedic");
+        rawExact.put("फ्रैक्चर", "Orthopedic");
+        rawExact.put("knee pain", "Orthopedic");
+        rawExact.put("joint pain", "Orthopedic");
+        rawExact.put("haddi dard", "Orthopedic");
+        rawExact.put("back pain", "Orthopedic");
+        rawExact.put("knee", "Orthopedic");
+        rawExact.put("joint", "Orthopedic");
+        rawExact.put("bone", "Orthopedic");
+        rawExact.put("fracture", "Orthopedic");
 
         // Cardiology
         rawExact.put("सीने में दर्द", "Cardiology");
+        rawExact.put("दिल की धड़कन", "Cardiology");
+        rawExact.put("सांस फूलना", "Cardiology");
         rawExact.put("chest pain", "Cardiology");
         rawExact.put("heart pain", "Cardiology");
         rawExact.put("chest", "Cardiology");
@@ -59,6 +88,8 @@ public class DepartmentRoutingService {
 
         // Dermatology
         rawExact.put("खुजली", "Dermatology");
+        rawExact.put("रैश", "Dermatology");
+        rawExact.put("त्वचा समस्या", "Dermatology");
         rawExact.put("skin problem", "Dermatology");
         rawExact.put("itching", "Dermatology");
         rawExact.put("dane", "Dermatology");
@@ -68,31 +99,24 @@ public class DepartmentRoutingService {
         rawExact.put("त्वचा की समस्या", "Dermatology");
         rawExact.put("त्वचा", "Dermatology");
 
-        // Orthopedic
-        rawExact.put("घुटने में दर्द", "Orthopedic");
-        rawExact.put("knee pain", "Orthopedic");
-        rawExact.put("joint pain", "Orthopedic");
-        rawExact.put("haddi dard", "Orthopedic");
-        rawExact.put("back pain", "Orthopedic");
-        rawExact.put("कमर दर्द", "Orthopedic");
-        rawExact.put("पीठ दर्द", "Orthopedic");
-        rawExact.put("knee", "Orthopedic");
-        rawExact.put("joint", "Orthopedic");
-        rawExact.put("bone", "Orthopedic");
+        // Neurology
+        rawExact.put("माइग्रेन", "Neurology");
+        rawExact.put("चक्कर", "Neurology");
+        rawExact.put("बेहोशी", "Neurology");
+        rawExact.put("mirgi", "Neurology");
+        rawExact.put("मिर्गी", "Neurology");
+        rawExact.put("brain", "Neurology");
+        rawExact.put("neuro", "Neurology");
 
         // Pediatrics
         rawExact.put("बच्चे को बुखार", "Pediatrics");
+        rawExact.put("बच्चे की खांसी", "Pediatrics");
+        rawExact.put("बच्चे की खाँसी", "Pediatrics");
         rawExact.put("bachha bukhar", "Pediatrics");
         rawExact.put("child fever", "Pediatrics");
         rawExact.put("child", "Pediatrics");
         rawExact.put("bachha", "Pediatrics");
         rawExact.put("kids", "Pediatrics");
-
-        // Neurology
-        rawExact.put("mirgi", "Neurology");
-        rawExact.put("मिर्गी", "Neurology");
-        rawExact.put("brain", "Neurology");
-        rawExact.put("neuro", "Neurology");
 
         // Sort keys by length descending to match longest phrases first
         List<String> keys = new ArrayList<>(rawExact.keySet());
@@ -117,9 +141,11 @@ public class DepartmentRoutingService {
         addScoreWord("उल्टी", "General Physician", 10);
         addScoreWord("samanya", "General Physician", 10);
         addScoreWord("सिर", "General Physician", 10);
+        addScoreWord("सर", "General Physician", 10);
         addScoreWord("sirdard", "General Physician", 10);
         addScoreWord("headache", "General Physician", 10);
         addScoreWord("head", "General Physician", 10);
+        addScoreWord("कमजोरी", "General Physician", 10);
 
         // Cardiology
         addScoreWord("सीने", "Cardiology", 10);
@@ -132,6 +158,7 @@ public class DepartmentRoutingService {
         addScoreWord("seena", "Cardiology", 10);
         addScoreWord("धड़कन", "Cardiology", 10);
         addScoreWord("bp", "Cardiology", 10);
+        addScoreWord("सांस", "Cardiology", 10);
 
         // Dermatology
         addScoreWord("खुजली", "Dermatology", 10);
@@ -143,6 +170,7 @@ public class DepartmentRoutingService {
         addScoreWord("dane", "Dermatology", 10);
         addScoreWord("pimples", "Dermatology", 10);
         addScoreWord("पिंपल", "Dermatology", 10);
+        addScoreWord("रैश", "Dermatology", 10);
 
         // Orthopedic
         addScoreWord("घुटना", "Orthopedic", 10);
@@ -158,6 +186,11 @@ public class DepartmentRoutingService {
         addScoreWord("कमर", "Orthopedic", 10);
         addScoreWord("back", "Orthopedic", 10);
         addScoreWord("पीठ", "Orthopedic", 10);
+        addScoreWord("पैर", "Orthopedic", 10);
+        addScoreWord("हाथ", "Orthopedic", 10);
+        addScoreWord("कंधा", "Orthopedic", 10);
+        addScoreWord("फ्रैक्चर", "Orthopedic", 10);
+        addScoreWord("fracture", "Orthopedic", 10);
 
         // Pediatrics
         addScoreWord("बच्चे", "Pediatrics", 10);
@@ -169,6 +202,8 @@ public class DepartmentRoutingService {
         addScoreWord("bachha", "Pediatrics", 10);
         addScoreWord("shishu", "Pediatrics", 10);
         addScoreWord("शिशु", "Pediatrics", 10);
+        addScoreWord("खांसी", "Pediatrics", 10);
+        addScoreWord("खाँसी", "Pediatrics", 10);
 
         // Neurology
         addScoreWord("दिमाग", "Neurology", 10);
@@ -179,6 +214,9 @@ public class DepartmentRoutingService {
         addScoreWord("fits", "Neurology", 10);
         addScoreWord("stroke", "Neurology", 10);
         addScoreWord("paralysis", "Neurology", 10);
+        addScoreWord("माइग्रेन", "Neurology", 10);
+        addScoreWord("चक्कर", "Neurology", 10);
+        addScoreWord("बेहोशी", "Neurology", 10);
 
         // Layer 3 Setup - keywords for Jaccard Similarity
         DEPT_KEYWORDS.put("Cardiology", List.of(
@@ -187,25 +225,25 @@ public class DepartmentRoutingService {
         ));
         DEPT_KEYWORDS.put("Dermatology", List.of(
             "khujli", "rash", "skin", "derma", "tvacha", "khaj", "dane", "pimples", "eczema", 
-            "itching", "acne", "पिंपल", "खुजली", "त्वचा", "खाज", "दाने", "त्वचा रोग"
+            "itching", "acne", "पिंपल", "खुजली", "त्वचा", "खाज", "दाने", "त्वचा रोग", "रैश"
         ));
         DEPT_KEYWORDS.put("Neurology", List.of(
             "neuro", "brain", "dimag", "sirdard", "mirgi", "headache", "migraine", "fits", 
-            "stroke", "paralysis", "migrain", "दिमाग", "सिरदर्द", "मिर्गी", "दौरा", "पक्षाघात"
+            "stroke", "paralysis", "migrain", "दिमाग", "सिरदर्द", "मिर्गी", "दौरा", "पक्षाघात", "माइग्रेन", "चक्कर", "बेहोशी"
         ));
         DEPT_KEYWORDS.put("Orthopedic", List.of(
             "ortho", "haddi", "bone", "orthopedic", "asthi", "ghutne", "jod", "kamar", "banh", 
             "tang", "joint pain", "back pain", "knee pain", "fracture", "haddi dard", 
-            "हड्डी", "अस्थि", "घुटने", "जोड़", "कमर", "बाँह्", "टाँग", "पीठ दर्द", "जोड़ों का दर्द"
+            "हड्डी", "अस्थि", "घुटने", "जोड़", "कमर", "बाँह्", "टाँग", "पीठ दर्द", "जोड़ों का दर्द", "पैर", "हाथ", "कंधा", "फ्रैक्चर"
         ));
         DEPT_KEYWORDS.put("Pediatrics", List.of(
             "paed", "pedia", "child", "bachha", "shishu", "infant", "pediatrician", "kids", 
-            "bachon ka doctor", "बच्च", "शिशु", "बाल रोग", "खिलौना"
+            "bachon ka doctor", "बच्च", "शिशु", "बाल रोग", "खिलौना", "खांसी", "खाँसी"
         ));
         DEPT_KEYWORDS.put("General Physician", List.of(
             "general", "samanya", "gp", "bukhar", "jukam", "fever", "cold", "cough", 
             "vomiting", "stomach ache", "weakness", "physician", "khansi", 
-            "सामान्य", "बुखार", "जुकाम", "खांसी", "उल्टी", "पेट दर्द", "कमजोरी"
+            "सामान्य", "बुखार", "जुकाम", "खांसी", "उल्टी", "पेट दर्द", "कमजोरी", "सिर दर्द", "सर दर्द"
         ));
     }
 

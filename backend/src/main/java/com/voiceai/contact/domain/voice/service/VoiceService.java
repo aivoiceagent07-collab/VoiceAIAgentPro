@@ -74,7 +74,13 @@ public class VoiceService {
         if (audio == null || audio.isEmpty()) {
             if (!state.isGreetingDone()) {
                 state.setGreetingDone(true);
-                String greetMsg = "नमस्ते, मैं क्लिनिक की रिसेप्शनिस्ट हूँ। मैं आपकी क्या मदद कर सकती हूँ?";
+                String greetingWord = getGreetingWord();
+                String greetMsg;
+                if (state.getPatientName() != null && !state.getPatientName().trim().isEmpty()) {
+                    greetMsg = greetingWord + " " + formatPersonalizedName(state.getPatientName()) + "। मैं आपकी क्या मदद कर सकती हूँ?";
+                } else {
+                    greetMsg = greetingWord + "। मैं क्लिनिक की रिसेप्शनिस्ट हूँ। मैं आपकी क्या मदद कर सकती हूँ?";
+                }
                 state.appendMessage("assistant", greetMsg);
                 log.debug("Initial greeting sent.");
                 long startTts = System.currentTimeMillis();
@@ -699,11 +705,12 @@ public class VoiceService {
                 if (state.getMode() == SessionState.Mode.RESCHEDULE && state.getRepeatCount() <= 1) {
                     aiResponse = "ठीक है " + formatPersonalizedName(state.getPatientName()) + ", आप किस दिन अपॉइंटमेंट रखना चाहेंगे?";
                 } else {
-                    aiResponse = state.getRepeatCount() <= 1
+                    String basePrompt = state.getRepeatCount() <= 1
                             ? "किस दिन आना चाहेंगे?"
                             : (state.getRepeatCount() == 2
                                     ? "माफ़ कीजिए, तारीख़ स्पष्ट नहीं हुई। कोई एक दिन बताएं जैसे सोमवार या मंगलवार।"
                                     : "आपने जो तारीख़ बताई वह स्पष्ट नहीं है। कृपया सिर्फ एक दिन बताएं।");
+                    aiResponse = personalizeSlotPrompt(basePrompt, state);
                 }
             }
             case "ASK_TIME" -> {
@@ -719,11 +726,12 @@ public class VoiceService {
                         aiResponse = formatPersonalizedName(state.getPatientName()) + ", डॉक्टर इस समय उपलब्ध नहीं हैं। कृपया दूसरा समय चुनें।";
                     }
                 } else {
-                    aiResponse = state.getRepeatCount() <= 1
+                    String basePrompt = state.getRepeatCount() <= 1
                             ? "कृपया समय बता दीजिए।"
                             : (state.getRepeatCount() == 2
                                     ? "माफ़ कीजिए, समय स्पष्ट नहीं हुआ। कृपया बताएं जैसे सुबह दस बजे या दोपहर बारह बजे।"
                                     : "कृपया सटीक समय बताएं जैसे दोपहर बारह बजे या शाम चार बजे।");
+                    aiResponse = personalizeSlotPrompt(basePrompt, state);
                 }
             }
             case "NEG_CONFIRM" -> aiResponse = "ठीक है " + formatPersonalizedName(state.getPatientName()) + ", कृपया नया समय बताइए।";
@@ -990,10 +998,48 @@ public class VoiceService {
         if (normalized.equalsIgnoreCase("Rahul")) {
             normalized = "राहुल";
         }
+        if (normalized.equalsIgnoreCase("Shardul")) {
+            normalized = "शार्दुल";
+        }
         if (normalized.endsWith("जी")) {
             return normalized;
         }
         return normalized + " जी";
+    }
+
+    private int getUserInteractionCount(SessionState state) {
+        int count = 0;
+        for (Map<String, String> msg : state.getMessageHistory()) {
+            if ("user".equals(msg.get("role"))) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private String getGreetingWord() {
+        java.time.LocalTime now = java.time.LocalTime.now(java.time.ZoneId.of("Asia/Kolkata"));
+        int hour = now.getHour();
+        if (hour >= 5 && hour < 12) {
+            return "सुप्रभात";
+        } else if (hour >= 12 && hour < 17) {
+            return "नमस्कार";
+        } else if (hour >= 17 && hour < 22) {
+            return "शुभ संध्या";
+        } else {
+            return "नमस्ते";
+        }
+    }
+
+    private String personalizeSlotPrompt(String basePrompt, SessionState state) {
+        if (state.getPatientName() == null || state.getPatientName().trim().isEmpty() || state.getRepeatCount() > 1) {
+            return basePrompt;
+        }
+        int count = getUserInteractionCount(state);
+        if (count % 2 == 0) {
+            return formatPersonalizedName(state.getPatientName()) + ", " + basePrompt;
+        }
+        return basePrompt;
     }
 
     private String formatConflictTime(String timeStr) {
