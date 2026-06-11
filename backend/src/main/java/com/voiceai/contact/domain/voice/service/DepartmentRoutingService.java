@@ -65,6 +65,8 @@ public class DepartmentRoutingService {
         rawExact.put("pimples", "Dermatology");
         rawExact.put("पिंपल", "Dermatology");
         rawExact.put("skin", "Dermatology");
+        rawExact.put("त्वचा की समस्या", "Dermatology");
+        rawExact.put("त्वचा", "Dermatology");
 
         // Orthopedic
         rawExact.put("घुटने में दर्द", "Orthopedic");
@@ -137,6 +139,7 @@ public class DepartmentRoutingService {
         addScoreWord("skin", "Dermatology", 10);
         addScoreWord("derma", "Dermatology", 10);
         addScoreWord("tvacha", "Dermatology", 10);
+        addScoreWord("त्वचा", "Dermatology", 10);
         addScoreWord("dane", "Dermatology", 10);
         addScoreWord("pimples", "Dermatology", 10);
         addScoreWord("पिंपल", "Dermatology", 10);

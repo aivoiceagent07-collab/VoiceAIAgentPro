@@ -122,7 +122,6 @@ public class VoiceService {
                 .replace("রাহুল", "राहुल")
                 .replace("काल", "कल")
                 .replace("आज", "आज");
-        transcription = normalizeDepartment(transcription);
         log.debug("Normalized input: {}", transcription);
 
         // Input validation
@@ -142,15 +141,61 @@ public class VoiceService {
         // Add user text to memory
         state.appendMessage("user", transcription);
 
+        // Handle explicit department selection FIRST
+        String explicitDept = getExplicitDepartment(transcription);
+        if (explicitDept != null) {
+            state.setDepartment(explicitDept);
+            state.setSuggestedDepartment(null);
+            if ("department_suggestion".equals(state.getLastAskedField()) || "department".equals(state.getLastAskedField())) {
+                state.setLastAskedField(null);
+            }
+            log.info("[ROUTING EXPLICIT] Final Department={} set directly.", explicitDept);
+        }
+
+        // Handle suggestion confirmation loops
+        if (state.getDepartment() == null && "department_suggestion".equals(state.getLastAskedField())) {
+            String cleanInput = transcription.toLowerCase().trim();
+            boolean hasNegation = cleanInput.contains("नहीं") || cleanInput.contains("मत") || cleanInput.contains("ना ") || cleanInput.contains("no");
+            boolean isConfirm = !hasNegation && (cleanInput.contains("हाँ") || cleanInput.contains("हां") || cleanInput.contains("yes") ||
+                    cleanInput.contains("कर दीजिए") || cleanInput.contains("कर दो") || cleanInput.contains("बिल्कुल") ||
+                    cleanInput.contains("कन्फर्म") || cleanInput.contains("ठीक है") || cleanInput.contains("जी") || cleanInput.contains("sure"));
+            
+            if (isConfirm) {
+                state.setDepartment(state.getSuggestedDepartment());
+                state.setSuggestedDepartment(null);
+                state.setLastAskedField(null);
+                log.info("[ROUTING CONFIRMED] Department={} confirmed by user.", state.getDepartment());
+            } else if (hasNegation) {
+                // Check if they supplied a different explicit department choice (e.g. "नहीं, कार्डियोलॉजी")
+                if (explicitDept != null) {
+                    state.setDepartment(explicitDept);
+                    state.setSuggestedDepartment(null);
+                    state.setLastAskedField(null);
+                } else {
+                    state.setSuggestedDepartment(null);
+                    state.setLastAskedField("department");
+                    log.info("[ROUTING NEGATED] Suggested department rejected. Asking directly.");
+                }
+            } else {
+                // If neither explicit confirm nor negate, check if they specified another department directly anyway
+                if (explicitDept != null) {
+                    state.setDepartment(explicitDept);
+                    state.setSuggestedDepartment(null);
+                    state.setLastAskedField(null);
+                }
+            }
+        }
+
         // 3. Deterministic Extraction Layer (Pre-LLM) & Symptom Department Routing
         DeterministicExtractionService.ExtractionResult detResult = deterministicExtractionService.extract(transcription, state);
-        String predictedDept = null;
-        if (state.getDepartment() == null) {
+        
+        // Suggest department (if department is null and no suggested department is yet active)
+        if (state.getDepartment() == null && state.getSuggestedDepartment() == null) {
             DepartmentRoutingService.DepartmentRoutingResult routingResult = departmentRoutingService.routeWithDetails(transcription);
             if (routingResult != null) {
-                predictedDept = routingResult.getDepartment();
-                state.setDepartment(predictedDept);
-                log.info("[ROUTING] Department={}, Source={}, Confidence={}", 
+                state.setSuggestedDepartment(routingResult.getDepartment());
+                state.setSuggestedDeptConfidence(routingResult.getConfidence());
+                log.info("[ROUTING SUGGESTION] Suggested={}, Source={}, Confidence={}", 
                          routingResult.getDepartment(), routingResult.getLayer(), routingResult.getConfidence());
                 
                 String sourceKey = "llm";
@@ -161,11 +206,6 @@ public class VoiceService {
                 }
                 metricsService.recordRouting(sourceKey);
             }
-        }
-        if ("department".equals(state.getLastAskedField()) && predictedDept != null) {
-            detResult.setSuccess(true);
-            detResult.setDepartment(predictedDept);
-            detResult.setIntent("PROVIDE_INFO");
         }
 
         LlmExtractionResponse extracted;
@@ -375,7 +415,7 @@ public class VoiceService {
                         log.debug("Name via heuristic fallback: {}", cleanText);
                     }
                 } else if ("department".equals(expectedField) && state.getDepartment() == null) {
-                    String val = normalizeDepartment(extracted.getDepartment() != null ? extracted.getDepartment() : predictedDept);
+                    String val = normalizeDepartment(extracted.getDepartment() != null ? extracted.getDepartment() : explicitDept);
                     if (isValidValue(val)) {
                         state.setDepartment(val);
                     } else {
@@ -424,7 +464,7 @@ public class VoiceService {
                         state.setPatientName(eName);
                     }
                     // Department fallback
-                    String eDept = normalizeDepartment(extracted.getDepartment() != null ? extracted.getDepartment() : predictedDept);
+                    String eDept = normalizeDepartment(extracted.getDepartment() != null ? extracted.getDepartment() : explicitDept);
                     if (isValidValue(eDept) && state.getDepartment() == null) {
                         state.setDepartment(eDept);
                     }
@@ -549,13 +589,33 @@ public class VoiceService {
                 systemData = clinicService.buildAvailabilityResponse(state);
             }
         } else if (state.getMode() == SessionState.Mode.BOOKING || state.getMode() == SessionState.Mode.RESCHEDULE) {
-            if (state.getPatientName() == null) {
+            if (state.getPatientName() == null && state.getSuggestedDepartment() == null) {
                 nextAction = "ASK_NAME";
                 state.setLastAskedField("name");
                 state.incrementRepeatCount();
             } else if (state.getDepartment() == null) {
-                nextAction = "ASK_DEPARTMENT";
-                state.setLastAskedField("department");
+                if (state.getSuggestedDepartment() != null) {
+                    double confidence = state.getSuggestedDeptConfidence();
+                    if (confidence >= 0.95) {
+                        nextAction = "CONFIRM_DEPARTMENT_SUGGESTION_HIGH";
+                        state.setLastAskedField("department_suggestion");
+                    } else if (confidence >= 0.80) {
+                        nextAction = "CONFIRM_DEPARTMENT_SUGGESTION_MEDIUM";
+                        state.setLastAskedField("department_suggestion");
+                    } else {
+                        // Low confidence, ask directly
+                        nextAction = "ASK_DEPARTMENT";
+                        state.setLastAskedField("department");
+                        state.setSuggestedDepartment(null); // Clear suggested
+                    }
+                } else {
+                    nextAction = "ASK_DEPARTMENT";
+                    state.setLastAskedField("department");
+                    state.incrementRepeatCount();
+                }
+            } else if (state.getPatientName() == null) {
+                nextAction = "ASK_NAME";
+                state.setLastAskedField("name");
                 state.incrementRepeatCount();
             } else if (state.getDate() == null) {
                 nextAction = "ASK_DATE";
@@ -597,6 +657,14 @@ public class VoiceService {
             case "ASK_DEPARTMENT" -> aiResponse = state.getRepeatCount() <= 1
                     ? "किस विभाग में दिखाना है?"
                     : "कृपया बताएं आपको किस तरह के डॉक्टर को दिखाना है, जैसे हड्डी, दिल, नसें या त्वचा।";
+            case "CONFIRM_DEPARTMENT_SUGGESTION_HIGH" -> {
+                String deptHi = speechFormatter.formatDeptName(state.getSuggestedDepartment());
+                aiResponse = "आपको " + deptHi + " विभाग में दिखाना उचित रहेगा। क्या मैं यही विभाग चुनूँ?";
+            }
+            case "CONFIRM_DEPARTMENT_SUGGESTION_MEDIUM" -> {
+                String deptHi = speechFormatter.formatDeptName(state.getSuggestedDepartment());
+                aiResponse = "आपको " + deptHi + " या किसी अन्य विभाग में दिखाना है?";
+            }
             case "ASK_DATE" -> aiResponse = state.getRepeatCount() <= 1
                     ? "किस दिन आना चाहेंगे?"
                     : (state.getRepeatCount() == 2
@@ -741,6 +809,30 @@ public class VoiceService {
                 return false;
         }
         return false;
+    }
+
+    private String getExplicitDepartment(String transcription) {
+        if (transcription == null) return null;
+        String s = transcription.toLowerCase().trim();
+        if (s.contains("cardiology") || s.contains("कार्डियोलॉजी")) {
+            return "Cardiology";
+        }
+        if (s.contains("orthopedic") || s.contains("ऑर्थोपेडिक")) {
+            return "Orthopedic";
+        }
+        if (s.contains("neurology") || s.contains("न्यूरोलॉजी")) {
+            return "Neurology";
+        }
+        if (s.contains("dermatology") || s.contains("डर्मेटोलॉजी")) {
+            return "Dermatology";
+        }
+        if (s.contains("general physician") || s.contains("जनरल फिजिशियन") || s.contains("samanya physician") || s.contains("सामान्य फिजिशियन")) {
+            return "General Physician";
+        }
+        if (s.contains("pediatrics") || s.contains("पीडियाट्रिक्स") || s.contains("बाल रोग")) {
+            return "Pediatrics";
+        }
+        return null;
     }
 
     private String normalizeDepartment(String input) {

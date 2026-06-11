@@ -11,6 +11,8 @@ public class SessionState {
     private String sessionId;
     private String patientName;
     private String department;
+    private String suggestedDepartment;
+    private double suggestedDeptConfidence;
     private String date;
     private java.time.LocalTime time;
     private String assignedDoctor;
@@ -37,6 +39,12 @@ public class SessionState {
 
     public String getDepartment() { return department; }
     public void setDepartment(String department) { this.department = department; }
+
+    public String getSuggestedDepartment() { return suggestedDepartment; }
+    public void setSuggestedDepartment(String suggestedDepartment) { this.suggestedDepartment = suggestedDepartment; }
+
+    public double getSuggestedDeptConfidence() { return suggestedDeptConfidence; }
+    public void setSuggestedDeptConfidence(double suggestedDeptConfidence) { this.suggestedDeptConfidence = suggestedDeptConfidence; }
 
     public String getDate() { return date; }
     public void setDate(String date) { this.date = date; }
