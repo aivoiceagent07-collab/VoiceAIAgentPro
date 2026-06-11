@@ -182,6 +182,11 @@ public class VoiceService {
                     state.setDepartment(explicitDept);
                     state.setSuggestedDepartment(null);
                     state.setLastAskedField(null);
+                } else {
+                    // Unrelated input, clear suggestion and ask directly
+                    state.setSuggestedDepartment(null);
+                    state.setLastAskedField("department");
+                    log.info("[ROUTING UNRELATED] Unrelated input during suggestion. Asking directly.");
                 }
             }
         }
@@ -372,6 +377,10 @@ public class VoiceService {
             extracted.setIsOutOfScope(false);
         }
 
+        if (state.getDepartment() != null || state.getSuggestedDepartment() != null) {
+            extracted.setIsOutOfScope(false);
+        }
+
         // Hard Out-of-Scope gate
         if (extracted.getIsOutOfScope() != null && extracted.getIsOutOfScope()
                 && (extracted.getIsQuerying() == null || !extracted.getIsQuerying())) {
@@ -406,7 +415,7 @@ public class VoiceService {
             } else {
                 // Sequential hydration based on the expected field first
                 String expectedField = state.getLastAskedField();
-                if ("name".equals(expectedField) && state.getPatientName() == null) {
+                if ("name".equals(expectedField)) {
                     String val = extracted.getName();
                     if (isValidValue(val) && isValidName(val)) {
                         state.setPatientName(val);
@@ -414,7 +423,7 @@ public class VoiceService {
                         state.setPatientName(cleanText);
                         log.debug("Name via heuristic fallback: {}", cleanText);
                     }
-                } else if ("department".equals(expectedField) && state.getDepartment() == null) {
+                } else if ("department".equals(expectedField)) {
                     String val = normalizeDepartment(extracted.getDepartment() != null ? extracted.getDepartment() : explicitDept);
                     if (isValidValue(val)) {
                         state.setDepartment(val);
@@ -424,7 +433,7 @@ public class VoiceService {
                             state.setDepartment(fallback);
                         }
                     }
-                } else if ("date".equals(expectedField) && (state.getDate() == null || state.getMode() == SessionState.Mode.RESCHEDULE)) {
+                } else if ("date".equals(expectedField)) {
                     String weekdayDate = speechFormatter.resolveWeekdayFromText(transcription);
                     String val = (weekdayDate != null) ? weekdayDate : extracted.getDate();
                     log.debug("Date candidate: weekday={}, llm={}, using={}", weekdayDate, extracted.getDate(), val);
@@ -433,11 +442,12 @@ public class VoiceService {
                     } else if (isValidValue(val)) {
                         if (isPastDate(val)) {
                             systemData = "PAST_DATE";
+                            state.setDate(null);
                         } else {
                             state.setDate(val);
                         }
                     }
-                } else if ("time".equals(expectedField) && state.getTime() == null) {
+                } else if ("time".equals(expectedField)) {
                     String candidateTime = isValidValue(extracted.getTime()) ? extracted.getTime() : null;
                     if (candidateTime == null && !transcription.replaceAll("[^0-9]", "").isEmpty()) {
                         candidateTime = transcription.trim();
@@ -449,9 +459,11 @@ public class VoiceService {
                                 state.setTime(parsedTime);
                             } else {
                                 timeInvalid = true;
+                                state.setTime(null);
                             }
                         } else {
                             timeInvalid = true;
+                            state.setTime(null);
                         }
                     }
                 }
@@ -464,9 +476,11 @@ public class VoiceService {
                         state.setPatientName(eName);
                     }
                     // Department fallback
-                    String eDept = normalizeDepartment(extracted.getDepartment() != null ? extracted.getDepartment() : explicitDept);
-                    if (isValidValue(eDept) && state.getDepartment() == null) {
-                        state.setDepartment(eDept);
+                    if (!"department_suggestion".equals(state.getLastAskedField())) {
+                        String eDept = normalizeDepartment(extracted.getDepartment() != null ? extracted.getDepartment() : explicitDept);
+                        if (isValidValue(eDept) && state.getDepartment() == null) {
+                            state.setDepartment(eDept);
+                        }
                     }
                     // Date fallback
                     String _weekdayDate = speechFormatter.resolveWeekdayFromText(transcription);
@@ -474,6 +488,7 @@ public class VoiceService {
                     if (isValidValue(eDate) && (state.getDate() == null || state.getMode() == SessionState.Mode.RESCHEDULE)) {
                         if (isPastDate(eDate)) {
                             systemData = "PAST_DATE";
+                            state.setDate(null);
                         } else {
                             state.setDate(eDate);
                         }
@@ -487,6 +502,7 @@ public class VoiceService {
                                 state.setTime(parsedTime);
                             } else {
                                 timeInvalid = true;
+                                state.setTime(null);
                             }
                         }
                     }
@@ -495,14 +511,19 @@ public class VoiceService {
         }
 
         boolean justEnteredConfirmation = false;
-        if (state.getPatientName() != null && state.getDepartment() != null && state.getDate() != null
-                && state.getTime() != null && !state.isConfirmed()) {
+        if (areAllSlotsValid(state) && !state.isConfirmed()) {
             if (state.getMode() == SessionState.Mode.BOOKING || state.getMode() == SessionState.Mode.RESCHEDULE) {
                 state.setMode(SessionState.Mode.CONFIRMATION);
                 justEnteredConfirmation = true;
                 if (state.getAssignedDoctor() == null) {
                     state.setAssignedDoctor(clinicService.matchDoctorRaw(state));
                 }
+            }
+        } else {
+            if (state.getMode() == SessionState.Mode.CONFIRMATION || state.getMode() == SessionState.Mode.POST_CONFIRM) {
+                state.setMode(SessionState.Mode.BOOKING);
+                state.setConfirmed(false);
+                log.info("[STATE CORRECTION] Mode demoted to BOOKING because slots are not all valid.");
             }
         }
 
@@ -702,6 +723,14 @@ public class VoiceService {
         state.appendMessage("assistant", aiResponse);
         log.debug("AI Response: {}", aiResponse);
 
+        log.info("[STATE TRANSITION] SessionId={}, Mode={}, ExpectedField={}, SuggestedDept={}, ConfirmedDept={}, NextAction={}",
+                 state.getSessionId(),
+                 state.getMode(),
+                 state.getLastAskedField() != null ? state.getLastAskedField() : "None",
+                 state.getSuggestedDepartment() != null ? state.getSuggestedDepartment() : "None",
+                 state.getDepartment() != null ? state.getDepartment() : "None",
+                 nextAction);
+
         log.debug("Synthesizing speech...");
         String audioBase64;
         try {
@@ -857,7 +886,13 @@ public class VoiceService {
             return "General Physician";
         if (s.contains("paed") || s.contains("pedia") || s.contains("child") || s.contains("बच्च"))
             return "Pediatrics";
-        return input;
+        
+        for (String dept : SessionState.ALLOWED_DEPARTMENTS) {
+            if (dept.equalsIgnoreCase(s)) {
+                return dept;
+            }
+        }
+        return null;
     }
 
     private boolean isPastDate(String dateStr) {
@@ -869,6 +904,22 @@ public class VoiceService {
         } catch (Exception e) {
             return false;
         }
+    }
+
+    private boolean areAllSlotsValid(SessionState state) {
+        if (state.getPatientName() == null || state.getPatientName().trim().isEmpty() || !isValidName(state.getPatientName())) {
+            return false;
+        }
+        if (state.getDepartment() == null || !SessionState.ALLOWED_DEPARTMENTS.contains(state.getDepartment())) {
+            return false;
+        }
+        if (state.getDate() == null || isPastDate(state.getDate()) || state.getDate().contains(",")) {
+            return false;
+        }
+        if (state.getTime() == null) {
+            return false;
+        }
+        return true;
     }
 
     private String buildBookingSummary(SessionState state) {

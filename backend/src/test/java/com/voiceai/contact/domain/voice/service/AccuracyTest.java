@@ -175,4 +175,110 @@ public class AccuracyTest {
         assertEquals("date", state.getLastAskedField());
         assertTrue(resp1.getText().contains("किस दिन आना चाहेंगे"));
     }
+
+    @Test
+    public void testSymptomDoesNotTriggerOutOfScope() throws Exception {
+        String sessionId = "test-scope-symptom";
+        SessionState state = sessionManagerService.getOrCreateSession(sessionId);
+        state.setPatientName("Rahul");
+        state.setMode(SessionState.Mode.BOOKING);
+
+        MultipartFile mockFile = Mockito.mock(MultipartFile.class);
+        Mockito.when(mockFile.isEmpty()).thenReturn(false);
+
+        Mockito.when(sarvamClient.transcribeAudio(any())).thenReturn("मेरे पेट में दर्द है");
+        
+        LlmExtractionResponse ext = new LlmExtractionResponse();
+        ext.setIntent("PROVIDE_INFO");
+        ext.setIsOutOfScope(true);
+        Mockito.when(groqClient.extractGroqEntities(anyString(), anyString(), any(SessionState.class))).thenReturn(ext);
+        Mockito.when(sarvamClient.synthesizeSpeech(anyString())).thenReturn("dummyAudio");
+
+        VoiceResponse response = voiceService.processVoice(mockFile, state.getSessionId());
+
+        assertEquals("General Physician", state.getSuggestedDepartment());
+        assertEquals("department_suggestion", state.getLastAskedField());
+        assertTrue(response.getText().contains("जनरल फिजिशियन"));
+    }
+
+    @Test
+    public void testFillerDoesNotBecomeDepartment() throws Exception {
+        String sessionId = "test-filler-dept";
+        SessionState state = sessionManagerService.getOrCreateSession(sessionId);
+        state.setPatientName("Rahul");
+        state.setLastAskedField("department");
+        state.setMode(SessionState.Mode.BOOKING);
+
+        MultipartFile mockFile = Mockito.mock(MultipartFile.class);
+        Mockito.when(mockFile.isEmpty()).thenReturn(false);
+
+        for (String filler : java.util.List.of("ठीक है", "हाँ", "नहीं", "टेस्ट", "नमस्ते", "ओके")) {
+            Mockito.when(sarvamClient.transcribeAudio(any())).thenReturn(filler);
+            LlmExtractionResponse ext = new LlmExtractionResponse();
+            ext.setIntent("PROVIDE_INFO");
+            ext.setDepartment(filler);
+            Mockito.when(groqClient.extractGroqEntities(anyString(), anyString(), any(SessionState.class))).thenReturn(ext);
+            Mockito.when(sarvamClient.synthesizeSpeech(anyString())).thenReturn("dummyAudio");
+
+            voiceService.processVoice(mockFile, state.getSessionId());
+
+            assertNotEquals(filler, state.getDepartment());
+            assertNull(state.getDepartment());
+        }
+    }
+
+    @Test
+    public void testConfirmationBlockedWithMissingSlots() throws Exception {
+        String sessionId = "test-missing-slots";
+        SessionState state = sessionManagerService.getOrCreateSession(sessionId);
+        
+        state.setPatientName("Rahul");
+        state.setDepartment("Orthopedic");
+        state.setDate(null);
+        state.setTime(java.time.LocalTime.of(10, 0));
+        state.setMode(SessionState.Mode.BOOKING);
+
+        MultipartFile mockFile = Mockito.mock(MultipartFile.class);
+        Mockito.when(mockFile.isEmpty()).thenReturn(false);
+
+        Mockito.when(sarvamClient.transcribeAudio(any())).thenReturn("हाँ");
+        LlmExtractionResponse ext = new LlmExtractionResponse();
+        ext.setIntent("CONTINUE");
+        Mockito.when(groqClient.extractGroqEntities(anyString(), anyString(), any(SessionState.class))).thenReturn(ext);
+        Mockito.when(sarvamClient.synthesizeSpeech(anyString())).thenReturn("dummyAudio");
+
+        VoiceResponse response = voiceService.processVoice(mockFile, state.getSessionId());
+
+        assertNotEquals(SessionState.Mode.CONFIRMATION, state.getMode());
+        assertEquals(SessionState.Mode.BOOKING, state.getMode());
+        assertFalse(response.getText().contains("कन्फर्म"));
+    }
+
+    @Test
+    public void testPastDateClearsDateSlot() throws Exception {
+        String sessionId = "test-past-date";
+        SessionState state = sessionManagerService.getOrCreateSession(sessionId);
+        state.setPatientName("Rahul");
+        state.setDepartment("Orthopedic");
+        state.setDate("2026-06-15");
+        state.setTime(java.time.LocalTime.of(10, 0));
+        state.setLastAskedField("date");
+        state.setMode(SessionState.Mode.BOOKING);
+
+        MultipartFile mockFile = Mockito.mock(MultipartFile.class);
+        Mockito.when(mockFile.isEmpty()).thenReturn(false);
+
+        Mockito.when(sarvamClient.transcribeAudio(any())).thenReturn("2020-01-01");
+        LlmExtractionResponse ext = new LlmExtractionResponse();
+        ext.setIntent("PROVIDE_INFO");
+        ext.setDate("2020-01-01");
+        Mockito.when(groqClient.extractGroqEntities(anyString(), anyString(), any(SessionState.class))).thenReturn(ext);
+        Mockito.when(sarvamClient.synthesizeSpeech(anyString())).thenReturn("dummyAudio");
+
+        VoiceResponse response = voiceService.processVoice(mockFile, state.getSessionId());
+
+        assertNull(state.getDate());
+        assertNotEquals(SessionState.Mode.CONFIRMATION, state.getMode());
+        assertEquals(SessionState.Mode.BOOKING, state.getMode());
+    }
 }

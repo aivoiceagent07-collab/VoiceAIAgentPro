@@ -8,6 +8,10 @@ import java.util.Map;
 public class SessionState {
     public enum Mode { BOOKING, CONFIRMATION, QUERY, POST_CONFIRM, RESCHEDULE, END }
 
+    public static final java.util.Set<String> ALLOWED_DEPARTMENTS = java.util.Set.of(
+        "Orthopedic", "Cardiology", "Neurology", "Dermatology", "General Physician", "Pediatrics"
+    );
+
     private String sessionId;
     private String patientName;
     private String department;
@@ -38,10 +42,22 @@ public class SessionState {
     public void setPatientName(String patientName) { this.patientName = patientName; }
 
     public String getDepartment() { return department; }
-    public void setDepartment(String department) { this.department = department; }
+    public void setDepartment(String department) { 
+        if (department == null) {
+            this.department = null;
+        } else if (ALLOWED_DEPARTMENTS.contains(department)) {
+            this.department = department;
+        }
+    }
 
     public String getSuggestedDepartment() { return suggestedDepartment; }
-    public void setSuggestedDepartment(String suggestedDepartment) { this.suggestedDepartment = suggestedDepartment; }
+    public void setSuggestedDepartment(String suggestedDepartment) { 
+        if (suggestedDepartment == null) {
+            this.suggestedDepartment = null;
+        } else if (ALLOWED_DEPARTMENTS.contains(suggestedDepartment)) {
+            this.suggestedDepartment = suggestedDepartment;
+        }
+    }
 
     public double getSuggestedDeptConfidence() { return suggestedDeptConfidence; }
     public void setSuggestedDeptConfidence(double suggestedDeptConfidence) { this.suggestedDeptConfidence = suggestedDeptConfidence; }
