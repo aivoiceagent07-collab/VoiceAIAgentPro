@@ -12,7 +12,6 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/contact")
-@CrossOrigin(origins = "*") // Allows calls from any frontend port like 5173
 public class ContactController {
 
     private final EmailService emailService;

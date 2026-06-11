@@ -14,7 +14,6 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/voice")
-@CrossOrigin(origins = "*") // Allows calls from any frontend port like 5173
 public class VoiceController {
 
     private static final Logger log = LoggerFactory.getLogger(VoiceController.class);
