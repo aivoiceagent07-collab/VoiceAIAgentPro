@@ -1,15 +1,41 @@
-# Frontend ignores
+# Frontend Ignores
 frontend/node_modules/
 frontend/dist/
 frontend/build/
 frontend/.env
 frontend/.env.local
+frontend/bun.lock
+frontend/bun.lockb
 
-# Backend ignores
+# Backend Ignores
 backend/target/
 backend/.env
 backend/.idea/
 backend/*.iml
+backend/out/
+backend/bin/
+backend/.settings/
+backend/.classpath
+backend/.project
 
-# General ignores
+# General Ignores
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*.log
+*.tmp
+*.bak
+*.swp
+
+# IDE Ignores
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

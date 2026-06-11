@@ -1,8 +1,8 @@
 
 import React from "react";
-import HeaderLogo from "./components/HeaderLogo";
+import HeaderLogo from "./features/landing/components/HeaderLogo";
 import Index from "./pages/Index";
-import "./components/HeaderLogo.css";
+import "./features/landing/components/HeaderLogo.css";
 
 function App() {
   return (
