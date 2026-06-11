@@ -37,6 +37,7 @@ public class VoiceService {
     private final DeterministicExtractionService deterministicExtractionService;
     private final DepartmentRoutingService departmentRoutingService;
     private final PerformanceMetricsService metricsService;
+    private final DepartmentNormalizationService departmentNormalizationService;
 
     public VoiceService(DateNormalizerService dateNormalizerService,
             SessionManagerService sessionManagerService,
@@ -47,7 +48,8 @@ public class VoiceService {
             SpeechFormatter speechFormatter,
             DeterministicExtractionService deterministicExtractionService,
             DepartmentRoutingService departmentRoutingService,
-            PerformanceMetricsService metricsService) {
+            PerformanceMetricsService metricsService,
+            DepartmentNormalizationService departmentNormalizationService) {
         this.dateNormalizerService = dateNormalizerService;
         this.sessionManagerService = sessionManagerService;
         this.inputValidatorService = inputValidatorService;
@@ -58,6 +60,7 @@ public class VoiceService {
         this.deterministicExtractionService = deterministicExtractionService;
         this.departmentRoutingService = departmentRoutingService;
         this.metricsService = metricsService;
+        this.departmentNormalizationService = departmentNormalizationService;
     }
 
     public VoiceResponse processVoice(MultipartFile audio, String sessionId) throws Exception {
@@ -307,7 +310,7 @@ public class VoiceService {
             state.setMode(SessionState.Mode.RESCHEDULE);
             state.setLastAskedField("date");
             state.resetRepeatCount();
-            String reschMsg = "ठीक है, आप किस दिन अपॉइंटमेंट रखना चाहेंगे?";
+            String reschMsg = "ठीक है " + formatPersonalizedName(state.getPatientName()) + ", आप किस दिन अपॉइंटमेंट रखना चाहेंगे?";
             state.appendMessage("assistant", reschMsg);
             log.debug("RESCHEDULE triggered from POST_CONFIRM");
             long startTts = System.currentTimeMillis();
@@ -399,6 +402,7 @@ public class VoiceService {
                 extracted.getDepartment(), extracted.getDate(), extracted.getTime());
 
         boolean timeInvalid = false;
+        boolean availabilityConflict = false;
         String systemData = "";
         String nextAction = "";
         boolean endCall = false;
@@ -459,10 +463,12 @@ public class VoiceService {
                                 state.setTime(parsedTime);
                             } else {
                                 timeInvalid = true;
+                                availabilityConflict = true;
                                 state.setTime(null);
                             }
                         } else {
                             timeInvalid = true;
+                            availabilityConflict = true;
                             state.setTime(null);
                         }
                     }
@@ -502,6 +508,7 @@ public class VoiceService {
                                 state.setTime(parsedTime);
                             } else {
                                 timeInvalid = true;
+                                availabilityConflict = true;
                                 state.setTime(null);
                             }
                         }
@@ -686,18 +693,39 @@ public class VoiceService {
                 String deptHi = speechFormatter.formatDeptName(state.getSuggestedDepartment());
                 aiResponse = "आपको " + deptHi + " या किसी अन्य विभाग में दिखाना है?";
             }
-            case "ASK_DATE" -> aiResponse = state.getRepeatCount() <= 1
-                    ? "किस दिन आना चाहेंगे?"
-                    : (state.getRepeatCount() == 2
-                            ? "माफ़ कीजिए, तारीख़ स्पष्ट नहीं हुई। कोई एक दिन बताएं जैसे सोमवार या मंगलवार।"
-                            : "आपने जो तारीख़ बताई वह स्पष्ट नहीं है। कृपया सिर्फ एक दिन बताएं।");
-            case "ASK_TIME" -> aiResponse = state.getRepeatCount() <= 1
-                    ? "कृपया समय बता दीजिए।"
-                    : (state.getRepeatCount() == 2
-                            ? "माफ़ कीजिए, समय स्पष्ट नहीं हुआ। कृपया बताएं जैसे सुबह दस बजे या दोपहर बारह बजे।"
-                            : "कृपया सटीक समय बताएं जैसे दोपहर बारह बजे या शाम चार बजे।");
-            case "NEG_CONFIRM" -> aiResponse = "ठीक है, कृपया नया समय बताइए।";
-            case "POST_CONFIRM" -> aiResponse = "आपकी अपॉइंटमेंट कन्फर्म हो गई है। क्या आपको और मदद चाहिए?";
+            case "ASK_DATE" -> {
+                if (state.getMode() == SessionState.Mode.RESCHEDULE && state.getRepeatCount() <= 1) {
+                    aiResponse = "ठीक है " + formatPersonalizedName(state.getPatientName()) + ", आप किस दिन अपॉइंटमेंट रखना चाहेंगे?";
+                } else {
+                    aiResponse = state.getRepeatCount() <= 1
+                            ? "किस दिन आना चाहेंगे?"
+                            : (state.getRepeatCount() == 2
+                                    ? "माफ़ कीजिए, तारीख़ स्पष्ट नहीं हुई। कोई एक दिन बताएं जैसे सोमवार या मंगलवार।"
+                                    : "आपने जो तारीख़ बताई वह स्पष्ट नहीं है। कृपया सिर्फ एक दिन बताएं।");
+                }
+            }
+            case "ASK_TIME" -> {
+                if (availabilityConflict) {
+                    Map<String, Object> doc = clinicService.getWorkingDoctor(state);
+                    if (doc != null) {
+                        String patientNamePart = formatPersonalizedName(state.getPatientName());
+                        String doctorNamePart = speechFormatter.formatDoctorName(doc.get("name").toString());
+                        String startTimePart = formatConflictTime((String) doc.get("start"));
+                        String endTimePart = formatConflictTime((String) doc.get("end"));
+                        aiResponse = patientNamePart + ", " + doctorNamePart + " " + startTimePart + " से " + endTimePart + " तक उपलब्ध हैं। कृपया इसी समय सीमा में कोई समय चुनें।";
+                    } else {
+                        aiResponse = formatPersonalizedName(state.getPatientName()) + ", डॉक्टर इस समय उपलब्ध नहीं हैं। कृपया दूसरा समय चुनें।";
+                    }
+                } else {
+                    aiResponse = state.getRepeatCount() <= 1
+                            ? "कृपया समय बता दीजिए।"
+                            : (state.getRepeatCount() == 2
+                                    ? "माफ़ कीजिए, समय स्पष्ट नहीं हुआ। कृपया बताएं जैसे सुबह दस बजे या दोपहर बारह बजे।"
+                                    : "कृपया सटीक समय बताएं जैसे दोपहर बारह बजे या शाम चार बजे।");
+                }
+            }
+            case "NEG_CONFIRM" -> aiResponse = "ठीक है " + formatPersonalizedName(state.getPatientName()) + ", कृपया नया समय बताइए।";
+            case "POST_CONFIRM" -> aiResponse = "धन्यवाद " + formatPersonalizedName(state.getPatientName()) + "। आपकी अपॉइंटमेंट कन्फर्म हो गई है। क्या आपको और मदद चाहिए?";
             case "CANCEL" -> aiResponse = "ठीक है, अपॉइंटमेंट कैंसिल कर दी गई है।";
             case "END" -> aiResponse = "धन्यवाद। आपका दिन शुभ हो।";
             case "MULTI_DATE" -> aiResponse = "आपने दो तारीखें बताई हैं। कृपया एक तारीख़ चुनें।";
@@ -708,7 +736,7 @@ public class VoiceService {
                 String timeN = speechFormatter.toNaturalTime(state.getTime());
                 String docN = speechFormatter.formatDoctorName(state.getAssignedDoctor());
                 String dept = speechFormatter.formatDeptName(state.getDepartment());
-                aiResponse = "आपका अपॉइंटमेंट " + dayH + ", " + dateH + " को "
+                aiResponse = formatPersonalizedName(state.getPatientName()) + ", आपका अपॉइंटमेंट " + dayH + ", " + dateH + " को "
                          + timeN + " " + docN + " (" + dept + " विभाग) के साथ है, क्या मैं इसे कन्फर्म कर दूँ?";
             }
             default -> {
@@ -842,6 +870,12 @@ public class VoiceService {
 
     private String getExplicitDepartment(String transcription) {
         if (transcription == null) return null;
+        
+        String normalized = departmentNormalizationService.normalize(transcription);
+        if (normalized != null) {
+            return normalized;
+        }
+
         String s = transcription.toLowerCase().trim();
         if (s.contains("cardiology") || s.contains("कार्डियोलॉजी")) {
             return "Cardiology";
@@ -867,6 +901,12 @@ public class VoiceService {
     private String normalizeDepartment(String input) {
         if (input == null)
             return null;
+
+        String normalized = departmentNormalizationService.normalize(input);
+        if (normalized != null) {
+            return normalized;
+        }
+
         String s = input.toLowerCase().trim();
         if (s.contains("ortho") || s.contains("हड्डी") || s.contains("bone") || s.contains("अस्थि")
                 || s.contains("घुटने") || s.contains("जोड़") || s.contains("कमर") || s.contains("बाँह्")
@@ -916,16 +956,56 @@ public class VoiceService {
         if (state.getDate() == null || isPastDate(state.getDate()) || state.getDate().contains(",")) {
             return false;
         }
-        if (state.getTime() == null) {
+        if (state.getTime() == null || !clinicService.isTimeInSlot(state.getTime(), state)) {
             return false;
         }
         return true;
     }
 
+    private String formatPersonalizedName(String name) {
+        if (name == null || name.trim().isEmpty()) {
+            return "";
+        }
+        String normalized = name.trim();
+        if (normalized.equalsIgnoreCase("Rahul")) {
+            normalized = "राहुल";
+        }
+        if (normalized.endsWith("जी")) {
+            return normalized;
+        }
+        return normalized + " जी";
+    }
+
+    private String formatConflictTime(String timeStr) {
+        if (timeStr == null || timeStr.trim().isEmpty()) {
+            return "";
+        }
+        java.time.LocalTime parsed = speechFormatter.parseTimeToLocalTime(timeStr);
+        if (parsed == null) {
+            return timeStr;
+        }
+        int hour24 = parsed.getHour();
+        int minute = parsed.getMinute();
+        int h12 = hour24 == 0 ? 12 : (hour24 > 12 ? hour24 - 12 : hour24);
+        
+        String prefix;
+        if      (hour24 >= 5  && hour24 < 12) prefix = "सुबह";
+        else if (hour24 == 12)                prefix = "दोपहर";
+        else if (hour24 >= 12 && hour24 < 17) prefix = "दोपहर";
+        else if (hour24 >= 17 && hour24 < 21) prefix = "शाम";
+        else                                  prefix = "रात";
+
+        if (minute == 0) {
+            return prefix + " " + h12 + " बजे";
+        } else {
+            return prefix + " " + h12 + ":" + String.format("%02d", minute) + " बजे";
+        }
+    }
+
     private String buildBookingSummary(SessionState state) {
         StringBuilder sb = new StringBuilder();
         sb.append("BOOKING SUMMARY:\n");
-        sb.append("Name: ").append(state.getPatientName() != null ? state.getPatientName() : "Not provided")
+        sb.append("Name: ").append(state.getPatientName() != null ? formatPersonalizedName(state.getPatientName()) : "Not provided")
                 .append("\n");
         sb.append("Department: ").append(state.getDepartment() != null ? state.getDepartment() : "Not provided")
                 .append("\n");
