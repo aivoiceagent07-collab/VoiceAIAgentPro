@@ -186,10 +186,8 @@ public class VoiceService {
                     state.setSuggestedDepartment(null);
                     state.setLastAskedField(null);
                 } else {
-                    // Unrelated input, clear suggestion and ask directly
-                    state.setSuggestedDepartment(null);
-                    state.setLastAskedField("department");
-                    log.info("[ROUTING UNRELATED] Unrelated input during suggestion. Asking directly.");
+                    // Invalid/unrelated response - do NOT modify state (do not clear suggested department or expected field)
+                    log.info("[ROUTING INVALID/UNRELATED] Unrelated input during suggestion. Keeping state unchanged.");
                 }
             }
         }
@@ -198,7 +196,8 @@ public class VoiceService {
         DeterministicExtractionService.ExtractionResult detResult = deterministicExtractionService.extract(transcription, state);
         
         // Suggest department (if department is null and no suggested department is yet active)
-        if (state.getDepartment() == null && state.getSuggestedDepartment() == null) {
+        String currentExpected = getNextExpectedField(state);
+        if ("department".equals(currentExpected) && state.getDepartment() == null && state.getSuggestedDepartment() == null) {
             DepartmentRoutingService.DepartmentRoutingResult routingResult = departmentRoutingService.routeWithDetails(transcription);
             if (routingResult != null) {
                 state.setSuggestedDepartment(routingResult.getDepartment());
@@ -323,9 +322,15 @@ public class VoiceService {
         }
 
         // Hard END
+        boolean isSlotElicitation = "name".equals(state.getLastAskedField())
+                || "department".equals(state.getLastAskedField())
+                || "department_suggestion".equals(state.getLastAskedField())
+                || "date".equals(state.getLastAskedField())
+                || "time".equals(state.getLastAskedField());
         boolean hardEnd = intent.equals("END")
-                || cTextCheck.equals("नहीं") || cTextCheck.equals("नहीं।")
-                || cTextCheck.equals("बस") || cTextCheck.equals("बस।")
+                || ((cTextCheck.equals("नहीं") || cTextCheck.equals("नहीं।")
+                     || cTextCheck.equals("बस") || cTextCheck.equals("बस।")
+                     || cTextCheck.equals("no")) && !isSlotElicitation)
                 || cTextCheck.contains("धन्यवाद")
                 || cTextCheck.contains("ठीक है, बस")
                 || cTextCheck.contains("thank you") || cTextCheck.contains("thanks")
@@ -527,7 +532,7 @@ public class VoiceService {
                 }
             }
         } else {
-            if (state.getMode() == SessionState.Mode.CONFIRMATION || state.getMode() == SessionState.Mode.POST_CONFIRM) {
+            if (state.getMode() == SessionState.Mode.CONFIRMATION) {
                 state.setMode(SessionState.Mode.BOOKING);
                 state.setConfirmed(false);
                 log.info("[STATE CORRECTION] Mode demoted to BOOKING because slots are not all valid.");
@@ -617,11 +622,12 @@ public class VoiceService {
                 systemData = clinicService.buildAvailabilityResponse(state);
             }
         } else if (state.getMode() == SessionState.Mode.BOOKING || state.getMode() == SessionState.Mode.RESCHEDULE) {
-            if (state.getPatientName() == null && state.getSuggestedDepartment() == null) {
+            currentExpected = getNextExpectedField(state);
+            if ("name".equals(currentExpected)) {
                 nextAction = "ASK_NAME";
                 state.setLastAskedField("name");
                 state.incrementRepeatCount();
-            } else if (state.getDepartment() == null) {
+            } else if ("department".equals(currentExpected)) {
                 if (state.getSuggestedDepartment() != null) {
                     double confidence = state.getSuggestedDeptConfidence();
                     if (confidence >= 0.95) {
@@ -641,15 +647,11 @@ public class VoiceService {
                     state.setLastAskedField("department");
                     state.incrementRepeatCount();
                 }
-            } else if (state.getPatientName() == null) {
-                nextAction = "ASK_NAME";
-                state.setLastAskedField("name");
-                state.incrementRepeatCount();
-            } else if (state.getDate() == null) {
+            } else if ("date".equals(currentExpected)) {
                 nextAction = "ASK_DATE";
                 state.setLastAskedField("date");
                 state.incrementRepeatCount();
-            } else if (state.getTime() == null) {
+            } else if ("time".equals(currentExpected)) {
                 nextAction = "ASK_TIME";
                 state.setLastAskedField("time");
                 state.incrementRepeatCount();
@@ -751,12 +753,14 @@ public class VoiceService {
         state.appendMessage("assistant", aiResponse);
         log.debug("AI Response: {}", aiResponse);
 
-        log.info("[STATE TRANSITION] SessionId={}, Mode={}, ExpectedField={}, SuggestedDept={}, ConfirmedDept={}, NextAction={}",
-                 state.getSessionId(),
+        log.info("[STATE TRANSITION] Mode={}, ExpectedField={}, PatientName={}, SuggestedDept={}, ConfirmedDept={}, Date={}, Time={}, NextAction={}",
                  state.getMode(),
                  state.getLastAskedField() != null ? state.getLastAskedField() : "None",
+                 state.getPatientName() != null ? state.getPatientName() : "None",
                  state.getSuggestedDepartment() != null ? state.getSuggestedDepartment() : "None",
                  state.getDepartment() != null ? state.getDepartment() : "None",
+                 state.getDate() != null ? state.getDate() : "None",
+                 state.getTime() != null ? state.getTime().toString() : "None",
                  nextAction);
 
         log.debug("Synthesizing speech...");
@@ -944,6 +948,22 @@ public class VoiceService {
         } catch (Exception e) {
             return false;
         }
+    }
+
+    private String getNextExpectedField(SessionState state) {
+        if (state.getPatientName() == null || state.getPatientName().trim().isEmpty() || !isValidName(state.getPatientName())) {
+            return "name";
+        }
+        if (state.getDepartment() == null || !SessionState.ALLOWED_DEPARTMENTS.contains(state.getDepartment())) {
+            return "department";
+        }
+        if (state.getDate() == null || isPastDate(state.getDate()) || state.getDate().contains(",")) {
+            return "date";
+        }
+        if (state.getTime() == null || !clinicService.isTimeInSlot(state.getTime(), state)) {
+            return "time";
+        }
+        return "confirmation";
     }
 
     private boolean areAllSlotsValid(SessionState state) {
