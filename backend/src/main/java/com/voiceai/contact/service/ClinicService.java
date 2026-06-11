@@ -1,0 +1,135 @@
+package com.voiceai.contact.service;
+
+import com.voiceai.contact.config.ClinicConfig;
+import com.voiceai.contact.model.SessionState;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+import java.util.Map;
+
+@Service
+public class ClinicService {
+
+    private final SpeechFormatter speechFormatter;
+
+    public ClinicService(SpeechFormatter speechFormatter) {
+        this.speechFormatter = speechFormatter;
+    }
+
+    public String matchDoctorRaw(SessionState state) {
+        if (state.getDepartment() == null) return "Any available doctor";
+        String matchedDept = null;
+        for (String dept : ClinicConfig.CLINIC_SCHEDULE.keySet()) {
+            if (dept.toLowerCase().contains(state.getDepartment().toLowerCase()) || state.getDepartment().toLowerCase().contains(dept.toLowerCase())) {
+                matchedDept = dept;
+                break;
+            }
+        }
+        if (matchedDept == null) return "General Doctor";
+        String dayOfWeek = speechFormatter.getDayOfWeek(state.getDate());
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> doctors = (List<Map<String, Object>>) ClinicConfig.CLINIC_SCHEDULE.get(matchedDept);
+        if (doctors != null) {
+            for (Map<String, Object> doc : doctors) {
+                @SuppressWarnings("unchecked")
+                List<String> days = (List<String>) doc.get("days");
+                if (dayOfWeek != null && days.contains(dayOfWeek)) {
+                    return (String) doc.get("name");
+                }
+            }
+            if (!doctors.isEmpty()) {
+                return (String) doctors.get(0).get("name");
+            }
+        }
+        return "General Doctor";
+    }
+
+    public String buildAvailabilityResponse(SessionState state) {
+        if (state.getDepartment() == null) {
+            return "विभाग नहीं बताया गया।";
+        }
+        String matchedDept = null;
+        for (String dept : ClinicConfig.CLINIC_SCHEDULE.keySet()) {
+            if (dept.equalsIgnoreCase(state.getDepartment()) || dept.toLowerCase().contains(state.getDepartment().toLowerCase())) {
+                matchedDept = dept;
+                break;
+            }
+        }
+        if (matchedDept == null) return "इस विभाग के लिए कोई डॉक्टर नहीं मिला।";
+
+        String dayOfWeek = speechFormatter.getDayOfWeek(state.getDate());
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> doctors = (List<Map<String, Object>>) ClinicConfig.CLINIC_SCHEDULE.get(matchedDept);
+        if (doctors == null) return "इस विभाग में अभी कोई डॉक्टर उपलब्ध नहीं हैं।";
+
+        for (Map<String, Object> doc : doctors) {
+            @SuppressWarnings("unchecked")
+            List<String> days = (List<String>) doc.get("days");
+            if (dayOfWeek != null && !days.contains(dayOfWeek)) continue;
+
+            String startH   = speechFormatter.toNaturalTime((String) doc.get("start"));
+            String endH     = speechFormatter.toNaturalTime((String) doc.get("end"));
+            String dayHindi = speechFormatter.toHindiDay(dayOfWeek != null ? dayOfWeek : ((List<String>) doc.get("days")).get(0));
+            String docDisplay = speechFormatter.formatDoctorName(doc.get("name").toString());
+            return dayHindi + " को " + docDisplay + " " + startH + " से " + endH + " तक उपलब्ध हैं।";
+        }
+        return "इस दिन कोई डॉक्टर उपलब्ध नहीं हैं।";
+    }
+
+    public boolean isTimeInSlot(String userTime, SessionState state) {
+        if (userTime == null || state.getDepartment() == null || state.getDate() == null) return true;
+        String dayOfWeek = speechFormatter.getDayOfWeek(state.getDate());
+        if (dayOfWeek == null) return true;
+        String matchedDept = null;
+        for (String dept : ClinicConfig.CLINIC_SCHEDULE.keySet()) {
+            if (dept.equalsIgnoreCase(state.getDepartment()) || dept.toLowerCase().contains(state.getDepartment().toLowerCase())) {
+                matchedDept = dept;
+                break;
+            }
+        }
+        if (matchedDept == null) return true;
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> doctors = (List<Map<String, Object>>) ClinicConfig.CLINIC_SCHEDULE.get(matchedDept);
+        if (doctors == null) return true;
+        for (Map<String, Object> doc : doctors) {
+            @SuppressWarnings("unchecked")
+            List<String> days = (List<String>) doc.get("days");
+            if (!days.contains(dayOfWeek)) continue;
+            try {
+                int slotStart = parseToMinutes((String) doc.get("start"));
+                int slotEnd   = parseToMinutes((String) doc.get("end"));
+                int requested = parseToMinutes(userTime);
+                if (requested < 0) return true; // parse failed — allow
+                return requested >= slotStart && requested < slotEnd;
+            } catch (Exception e) {
+                return true;
+            }
+        }
+        return true;
+    }
+
+    public int parseToMinutes(String timeStr) {
+        if (timeStr == null) return -1;
+        String s = timeStr.trim().toUpperCase();
+        try {
+            if (s.contains(":")) {
+                String[] parts = s.replace("AM", "").replace("PM", "").trim().split(":");
+                int h = Integer.parseInt(parts[0].trim());
+                int m = parts.length > 1 ? Integer.parseInt(parts[1].trim()) : 0;
+                if (s.contains("PM") && h != 12) h += 12;
+                if (s.contains("AM") && h == 12) h = 0;
+                return h * 60 + m;
+            } else {
+                String num = s.replace("AM", "").replace("PM", "").replace("बजे", "").trim();
+                num = num.replaceAll("[^0-9]", "");
+                if (num.isEmpty()) return -1;
+                int h = Integer.parseInt(num);
+                if (s.contains("PM") && h != 12) h += 12;
+                if (s.contains("AM") && h == 12) h = 0;
+                return h * 60;
+            }
+        } catch (Exception e) {
+            return -1;
+        }
+    }
+}

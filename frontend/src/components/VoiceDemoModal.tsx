@@ -36,7 +36,61 @@ const VoiceDemoModal = ({ onClose }: VoiceDemoModalProps) => {
   // Setup loop
   const startInteraction = async () => {
     isContinuousRef.current = true;
-    startRecording();
+    setState("PROCESSING");
+    
+    try {
+      const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8081';
+      const response = await fetch(`${apiBase}/api/voice`, {
+        method: "POST",
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to initialize conversation");
+      }
+
+      const data = await response.json();
+      
+      if (data.sessionId) {
+          sessionIdRef.current = data.sessionId;
+      }
+
+      if (data.text) {
+        setMessages([{ role: "assistant", content: data.text }]);
+      }
+      
+      if (!isContinuousRef.current) return;
+
+      if (data.audio) {
+        setState("RESPONDING");
+        try {
+          const audio = new Audio("data:audio/wav;base64," + data.audio);
+          audioPlaybackRef.current = audio;
+          audio.onended = () => {
+            if (isContinuousRef.current) {
+                startRecording();
+            }
+          };
+          await audio.play();
+        } catch (playError) {
+          console.error("Audio play error", playError);
+          if (isContinuousRef.current) {
+              startRecording();
+          }
+        }
+      } else {
+        if (isContinuousRef.current) {
+            startRecording();
+        }
+      }
+      
+    } catch (error) {
+      console.error("Initialization error:", error);
+      if (isContinuousRef.current) {
+          setState("ERROR");
+          setErrorMsg("Failed to connect to the Voice API. Backend may be unreachable.");
+          stopInteraction();
+      }
+    }
   };
 
   const startRecording = async () => {
