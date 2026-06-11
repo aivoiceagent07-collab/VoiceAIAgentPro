@@ -47,7 +47,14 @@ const VoiceDemoModal = ({ onClose }: VoiceDemoModalProps) => {
       });
 
       if (!response.ok) {
-        throw new Error("Failed to initialize conversation");
+        let errMsg = "Failed to initialize conversation";
+        try {
+          const errData = await response.json();
+          if (errData && errData.message) {
+            errMsg = errData.message;
+          }
+        } catch (_) {}
+        throw new Error(errMsg);
       }
 
       const data = await response.json();
@@ -85,12 +92,12 @@ const VoiceDemoModal = ({ onClose }: VoiceDemoModalProps) => {
         }
       }
       
-    } catch (error) {
+    } catch (error: any) {
       console.error("Initialization error:", error);
       if (isContinuousRef.current) {
           stopInteraction(true);
           setState("ERROR");
-          setErrorMsg("Failed to connect to the Voice API. Backend may be unreachable.");
+          setErrorMsg(error.message || "Failed to connect to the Voice API. Backend may be unreachable.");
       }
     }
   };
@@ -238,7 +245,14 @@ const VoiceDemoModal = ({ onClose }: VoiceDemoModalProps) => {
       });
 
       if (!response.ok) {
-        throw new Error("Failed to process request");
+        let errMsg = "Failed to process request";
+        try {
+          const errData = await response.json();
+          if (errData && errData.message) {
+            errMsg = errData.message;
+          }
+        } catch (_) {}
+        throw new Error(errMsg);
       }
 
       const data = await response.json();
@@ -291,12 +305,12 @@ const VoiceDemoModal = ({ onClose }: VoiceDemoModalProps) => {
         }
       }
       
-    } catch (error) {
+    } catch (error: any) {
       console.error("API error:", error);
       if (isContinuousRef.current) {
           stopInteraction(true);
           setState("ERROR");
-          setErrorMsg("Failed to connect to the Voice API. Backend may be unreachable.");
+          setErrorMsg(error.message || "Failed to connect to the Voice API. Backend may be unreachable.");
       }
     }
   };
