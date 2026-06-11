@@ -3,6 +3,8 @@ package com.voiceai.contact.domain.voice.controller;
 import com.voiceai.contact.domain.voice.dto.VoiceResponse;
 import com.voiceai.contact.domain.voice.service.VoiceService;
 import com.voiceai.contact.domain.voice.service.PerformanceMetricsService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -14,6 +16,8 @@ import java.util.Map;
 @RequestMapping("/api/voice")
 @CrossOrigin(origins = "*") // Allows calls from any frontend port like 5173
 public class VoiceController {
+
+    private static final Logger log = LoggerFactory.getLogger(VoiceController.class);
 
     private final VoiceService voiceService;
     private final PerformanceMetricsService metricsService;
@@ -37,7 +41,7 @@ public class VoiceController {
             return ResponseEntity.ok(response);
         } catch (Exception ex) {
             Map<String, String> errorResponse = new HashMap<>();
-            ex.printStackTrace(); // Log full stack trace
+            log.error("Error processing voice request", ex);
             errorResponse.put("status", "error");
             errorResponse.put("message", ex.getMessage() != null ? ex.getMessage() : ex.toString());
             return ResponseEntity.status(500).body(errorResponse);

@@ -2,6 +2,9 @@ package com.voiceai.contact.domain.voice.util;
 
 import com.voiceai.contact.domain.voice.model.SessionState;
 import com.voiceai.contact.domain.voice.service.DateNormalizerService;
+import com.voiceai.contact.domain.voice.service.TimeNormalizationService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
@@ -12,6 +15,13 @@ import java.util.LinkedHashMap;
 
 @Service
 public class SpeechFormatter {
+
+    private static final Logger log = LoggerFactory.getLogger(SpeechFormatter.class);
+    private final TimeNormalizationService timeNormalizationService;
+
+    public SpeechFormatter(TimeNormalizationService timeNormalizationService) {
+        this.timeNormalizationService = timeNormalizationService;
+    }
 
     private static final Map<String, String> DEPT_PHONETICS = new LinkedHashMap<>() {{
         put("General Physician", "जनरल फिजिशियन");
@@ -103,7 +113,7 @@ public class SpeechFormatter {
             if (low.contains(e.getKey())) {
                 LocalDate today = LocalDate.now(ZoneId.of("Asia/Kolkata"));
                 LocalDate target = DateNormalizerService.nextWeekday(today, e.getValue());
-                System.out.println("[LOG] resolveWeekdayFromText: '" + e.getKey() + "' → " + target);
+                log.debug("resolveWeekdayFromText: '{}' -> {}", e.getKey(), target);
                 return target.toString();
             }
         }
@@ -131,29 +141,9 @@ public class SpeechFormatter {
     public String toNaturalTime(String raw) {
         if (raw == null || raw.trim().isEmpty()) return "";
         try {
-            int hour24;
-            String up = raw.trim().toUpperCase();
-            if (up.contains("AM") || up.contains("PM")) {
-                String numPart = up.replaceAll("[^0-9:]", "").split(":")[0];
-                int h = Integer.parseInt(numPart);
-                if (up.contains("PM") && h != 12) h += 12;
-                if (up.contains("AM") && h == 12) h = 0;
-                hour24 = h;
-            } else if (raw.contains(":")) {
-                hour24 = Integer.parseInt(raw.split(":")[0].trim());
-            } else {
-                hour24 = Integer.parseInt(raw.replaceAll("[^0-9]", "").trim());
-            }
-
-            int h12 = hour24 == 0 ? 12 : (hour24 > 12 ? hour24 - 12 : hour24);
-            String prefix;
-            if      (hour24 >= 5  && hour24 < 12) prefix = "सुबह";
-            else if (hour24 == 12)                 prefix = "दोपहर";
-            else if (hour24 >= 12 && hour24 < 17)  prefix = "दोपहर";
-            else if (hour24 >= 17 && hour24 < 21)  prefix = "शाम";
-            else                                    prefix = "रात";
-
-            return prefix + " " + toHindiNumber(h12) + " बजे";
+            java.time.LocalTime parsed = timeNormalizationService.parseTimeToLocalTime(raw);
+            if (parsed == null) return raw;
+            return timeNormalizationService.toNaturalTime(parsed);
         } catch (Exception e) {
             return raw;
         }
@@ -226,100 +216,10 @@ public class SpeechFormatter {
     }
 
     public String toNaturalTime(java.time.LocalTime time) {
-        if (time == null) return "";
-        return toNaturalTime(time.toString());
+        return timeNormalizationService.toNaturalTime(time);
     }
 
     public java.time.LocalTime parseTimeToLocalTime(String raw) {
-        if (raw == null || raw.trim().isEmpty()) {
-            return null;
-        }
-
-        String clean = raw.toLowerCase().trim();
-
-        // 1. Determine meridian / period based on original text
-        boolean isPm = false;
-        boolean isAm = false;
-        if (clean.contains("pm") || clean.contains("दोपहर") || clean.contains("शाम") || clean.contains("रात")) {
-            isPm = true;
-        }
-        if (clean.contains("am") || clean.contains("सुबह")) {
-            isAm = true;
-        }
-
-        // 2. Remove period words to prevent substring collisions (e.g., "दो" in "दोपहर")
-        clean = clean
-            .replace("दोपहर", "")
-            .replace("सुबह", "")
-            .replace("शाम", "")
-            .replace("रात", "");
-
-        // 3. Convert Hindi number words to standard digits
-        clean = clean
-            .replace("शून्य", "0")
-            .replace("एक", "1")
-            .replace("दो", "2")
-            .replace("तीन", "3")
-            .replace("चार", "4")
-            .replace("पाँच", "5")
-            .replace("पांच", "5")
-            .replace("छह", "6")
-            .replace("छः", "6")
-            .replace("सात", "7")
-            .replace("आठ", "8")
-            .replace("नौ", "9")
-            .replace("दस", "10")
-            .replace("ग्यारह", "11")
-            .replace("बारह", "12");
-
-        // 4. Convert Hindi Devanagari digits to standard digits
-        clean = clean
-            .replace("०", "0")
-            .replace("१", "1")
-            .replace("२", "2")
-            .replace("३", "3")
-            .replace("४", "4")
-            .replace("५", "5")
-            .replace("६", "6")
-            .replace("७", "7")
-            .replace("८", "8")
-            .replace("९", "9");
-
-        // 5. Extract hours and minutes using regex
-        java.util.regex.Pattern timePattern = java.util.regex.Pattern.compile("(\\d{1,2})(?:\\s*[:.]\\s*(\\d{2}))?");
-        java.util.regex.Matcher matcher = timePattern.matcher(clean);
-
-        if (matcher.find()) {
-            int hour = Integer.parseInt(matcher.group(1));
-            int minute = matcher.group(2) != null ? Integer.parseInt(matcher.group(2)) : 0;
-
-            if (hour < 1 || hour > 24) {
-                return null;
-            }
-
-            // Adjust hour for AM/PM
-            if (isPm) {
-                if (hour == 12) {
-                    if (raw.toLowerCase().contains("रात")) {
-                        hour = 0;
-                    }
-                } else if (hour < 12) {
-                    hour += 12;
-                }
-            } else if (isAm) {
-                if (hour == 12) {
-                    hour = 0;
-                }
-            } else {
-                // Heuristic for default clinic hours
-                if (hour >= 1 && hour <= 8) {
-                    hour += 12;
-                }
-            }
-
-            return java.time.LocalTime.of(hour, minute);
-        }
-
-        return null;
+        return timeNormalizationService.parseTimeToLocalTime(raw);
     }
 }

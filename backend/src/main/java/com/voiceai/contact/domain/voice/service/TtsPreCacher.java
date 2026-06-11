@@ -2,6 +2,8 @@ package com.voiceai.contact.domain.voice.service;
 
 import com.voiceai.contact.domain.voice.client.SarvamClient;
 import com.voiceai.contact.domain.voice.util.TtsCache;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.stereotype.Component;
 
@@ -9,6 +11,8 @@ import java.util.List;
 
 @Component
 public class TtsPreCacher implements CommandLineRunner {
+
+    private static final Logger log = LoggerFactory.getLogger(TtsPreCacher.class);
 
     private final SarvamClient sarvamClient;
     private final TtsCache ttsCache;
@@ -20,7 +24,7 @@ public class TtsPreCacher implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
-        System.out.println("[TTS Pre-Cacher] Starting pre-caching of common system responses...");
+        log.info("Starting pre-caching of common system responses...");
         List<String> commonTexts = List.of(
             "नमस्ते, मैं क्लिनिक की रिसेप्शनिस्ट हूँ। मैं आपकी क्या मदद कर सकती हूँ?",
             "माफ़ कीजिए, मुझे समझ नहीं आया। क्या आप फिर से बता सकते हैं?",
@@ -49,9 +53,9 @@ public class TtsPreCacher implements CommandLineRunner {
                     ttsCache.put(text, audio);
                 }
             } catch (Exception e) {
-                System.err.println("[TTS Pre-Cacher] Failed to pre-cache: '" + text + "'. Error: " + e.getMessage());
+                log.error("Failed to pre-cache: '{}'. Error: {}", text, e.getMessage());
             }
         }
-        System.out.println("[TTS Pre-Cacher] Completed pre-caching.");
+        log.info("Completed pre-caching.");
     }
 }

@@ -73,27 +73,29 @@ public class VoiceService {
                 state.setGreetingDone(true);
                 String greetMsg = "नमस्ते, मैं क्लिनिक की रिसेप्शनिस्ट हूँ। मैं आपकी क्या मदद कर सकती हूँ?";
                 state.appendMessage("assistant", greetMsg);
-                log.info("Initial greeting sent.");
+                log.debug("Initial greeting sent.");
                 long startTts = System.currentTimeMillis();
                 String audioBase64 = sarvamClient.synthesizeSpeech(greetMsg);
                 metricsService.recordTts(System.currentTimeMillis() - startTts);
                 metricsService.recordRequest(System.currentTimeMillis() - startReqTime);
+                log.info("[METRICS] Processed initial greeting. Latency={} ms", System.currentTimeMillis() - startReqTime);
                 return new VoiceResponse("", greetMsg, audioBase64, false,
                         state.getSessionId());
             } else {
                 metricsService.recordRequest(System.currentTimeMillis() - startReqTime);
+                log.info("[METRICS] Processed empty greeting. Latency={} ms", System.currentTimeMillis() - startReqTime);
                 return new VoiceResponse("", "", "", false, state.getSessionId());
             }
         }
 
         // 2. STT (Speech to Text) via Sarvam
-        log.info("Transcribing audio...");
+        log.debug("Transcribing audio...");
         String transcription;
         long startStt = System.currentTimeMillis();
         try {
             transcription = sarvamClient.transcribeAudio(audio);
             metricsService.recordStt(System.currentTimeMillis() - startStt);
-            log.info("Transcription: {}", transcription);
+            log.debug("Transcription: {}", transcription);
         } catch (Exception e) {
             log.error("Failed STT: {}", e.getMessage());
             metricsService.recordStt(System.currentTimeMillis() - startStt);
@@ -101,12 +103,13 @@ public class VoiceService {
         }
 
         if (transcription == null || transcription.trim().isEmpty()) {
-            log.info("No speech detected. Returning fallback audio directly and skipping LLM.");
+            log.debug("No speech detected. Returning fallback audio directly and skipping LLM.");
             String fallbackMsg = "मुझे आपकी आवाज़ सुनाई नहीं दी। कृपया फिर से प्रयास करें।";
             long startTts = System.currentTimeMillis();
             String audioBase64 = sarvamClient.synthesizeSpeech(fallbackMsg);
             metricsService.recordTts(System.currentTimeMillis() - startTts);
             metricsService.recordRequest(System.currentTimeMillis() - startReqTime);
+            log.info("[METRICS] Processed empty transcription fallback. Latency={} ms", System.currentTimeMillis() - startReqTime);
             return new VoiceResponse("", fallbackMsg, audioBase64, false, state.getSessionId());
         }
 
@@ -119,18 +122,18 @@ public class VoiceService {
                 .replace("রাহুল", "राहुल")
                 .replace("काल", "कल")
                 .replace("आज", "आज");
-        transcription = normalizeDepartment(transcription);
-        log.info("Normalized input: {}", transcription);
+        log.debug("Normalized input: {}", transcription);
 
         // Input validation
         if (!inputValidatorService.isValidInput(transcription, state.getLastAskedField())) {
-            log.info("Input rejected by validator: {}", transcription);
+            log.debug("Input rejected by validator: {}", transcription);
             String errorMsg = "माफ़ कीजिए, मुझे समझ नहीं आया। क्या आप फिर से बता सकते हैं?";
             state.appendMessage("assistant", errorMsg);
             long startTts = System.currentTimeMillis();
             String audioBase64 = sarvamClient.synthesizeSpeech(errorMsg);
             metricsService.recordTts(System.currentTimeMillis() - startTts);
             metricsService.recordRequest(System.currentTimeMillis() - startReqTime);
+            log.info("[METRICS] Processed validation rejection. Latency={} ms", System.currentTimeMillis() - startReqTime);
             return new VoiceResponse(transcription, errorMsg, audioBase64, false,
                     state.getSessionId());
         }
@@ -138,32 +141,88 @@ public class VoiceService {
         // Add user text to memory
         state.appendMessage("user", transcription);
 
-        // 3. Deterministic Extraction Layer (Pre-LLM) & Symptom Department Routing
-        DeterministicExtractionService.ExtractionResult detResult = deterministicExtractionService.extract(transcription, state);
-        String predictedDept = null;
-        if (state.getDepartment() == null) {
-            predictedDept = departmentRoutingService.route(transcription);
-            if (predictedDept != null) {
-                state.setDepartment(predictedDept);
-                metricsService.recordRouting(transcription.toLowerCase().contains(predictedDept.toLowerCase()) ? "dictionary" : "similarity");
+        // Handle explicit department selection FIRST
+        String explicitDept = getExplicitDepartment(transcription);
+        if (explicitDept != null) {
+            state.setDepartment(explicitDept);
+            state.setSuggestedDepartment(null);
+            if ("department_suggestion".equals(state.getLastAskedField()) || "department".equals(state.getLastAskedField())) {
+                state.setLastAskedField(null);
+            }
+            log.info("[ROUTING EXPLICIT] Final Department={} set directly.", explicitDept);
+        }
+
+        // Handle suggestion confirmation loops
+        if (state.getDepartment() == null && "department_suggestion".equals(state.getLastAskedField())) {
+            String cleanInput = transcription.toLowerCase().trim();
+            boolean hasNegation = cleanInput.contains("नहीं") || cleanInput.contains("मत") || cleanInput.contains("ना ") || cleanInput.contains("no");
+            boolean isConfirm = !hasNegation && (cleanInput.contains("हाँ") || cleanInput.contains("हां") || cleanInput.contains("yes") ||
+                    cleanInput.contains("कर दीजिए") || cleanInput.contains("कर दो") || cleanInput.contains("बिल्कुल") ||
+                    cleanInput.contains("कन्फर्म") || cleanInput.contains("ठीक है") || cleanInput.contains("जी") || cleanInput.contains("sure"));
+            
+            if (isConfirm) {
+                state.setDepartment(state.getSuggestedDepartment());
+                state.setSuggestedDepartment(null);
+                state.setLastAskedField(null);
+                log.info("[ROUTING CONFIRMED] Department={} confirmed by user.", state.getDepartment());
+            } else if (hasNegation) {
+                // Check if they supplied a different explicit department choice (e.g. "नहीं, कार्डियोलॉजी")
+                if (explicitDept != null) {
+                    state.setDepartment(explicitDept);
+                    state.setSuggestedDepartment(null);
+                    state.setLastAskedField(null);
+                } else {
+                    state.setSuggestedDepartment(null);
+                    state.setLastAskedField("department");
+                    log.info("[ROUTING NEGATED] Suggested department rejected. Asking directly.");
+                }
+            } else {
+                // If neither explicit confirm nor negate, check if they specified another department directly anyway
+                if (explicitDept != null) {
+                    state.setDepartment(explicitDept);
+                    state.setSuggestedDepartment(null);
+                    state.setLastAskedField(null);
+                } else {
+                    // Unrelated input, clear suggestion and ask directly
+                    state.setSuggestedDepartment(null);
+                    state.setLastAskedField("department");
+                    log.info("[ROUTING UNRELATED] Unrelated input during suggestion. Asking directly.");
+                }
             }
         }
-        if ("department".equals(state.getLastAskedField()) && predictedDept != null) {
-            detResult.setSuccess(true);
-            detResult.setDepartment(predictedDept);
-            detResult.setIntent("PROVIDE_INFO");
+
+        // 3. Deterministic Extraction Layer (Pre-LLM) & Symptom Department Routing
+        DeterministicExtractionService.ExtractionResult detResult = deterministicExtractionService.extract(transcription, state);
+        
+        // Suggest department (if department is null and no suggested department is yet active)
+        if (state.getDepartment() == null && state.getSuggestedDepartment() == null) {
+            DepartmentRoutingService.DepartmentRoutingResult routingResult = departmentRoutingService.routeWithDetails(transcription);
+            if (routingResult != null) {
+                state.setSuggestedDepartment(routingResult.getDepartment());
+                state.setSuggestedDeptConfidence(routingResult.getConfidence());
+                log.info("[ROUTING SUGGESTION] Suggested={}, Source={}, Confidence={}", 
+                         routingResult.getDepartment(), routingResult.getLayer(), routingResult.getConfidence());
+                
+                String sourceKey = "llm";
+                if (routingResult.getLayer().startsWith("Exact") || routingResult.getLayer().startsWith("Keyword")) {
+                    sourceKey = "dictionary";
+                } else if (routingResult.getLayer().startsWith("Semantic")) {
+                    sourceKey = "similarity";
+                }
+                metricsService.recordRouting(sourceKey);
+            }
         }
 
         LlmExtractionResponse extracted;
         String intent;
         if (detResult.isSuccess()) {
-            log.info("Deterministic extraction bypass triggered. ExpectedField={}", state.getLastAskedField());
+            log.debug("Deterministic extraction bypass triggered. ExpectedField={}", state.getLastAskedField());
             extracted = new LlmExtractionResponse();
             extracted.setIntent(detResult.getIntent());
             extracted.setName(detResult.getName());
             extracted.setDepartment(detResult.getDepartment() != null ? detResult.getDepartment() : state.getDepartment());
             extracted.setDate(detResult.getDate());
-            extracted.setTime(detResult.getTime());
+            extracted.setTime(detResult.getTime() != null ? detResult.getTime() : null);
             extracted.setIsConfirming(detResult.getIsConfirming());
             extracted.setIsQuerying(detResult.getIsQuerying());
             extracted.setIsOutOfScope(detResult.getIsOutOfScope());
@@ -171,7 +230,7 @@ public class VoiceService {
         } else {
             long startLlm = System.currentTimeMillis();
             String dateContext = dateNormalizerService.getDateContext(transcription);
-            log.info("Extracting AI entities for: {}", transcription);
+            log.debug("Extracting AI entities for: {}", transcription);
             extracted = groqClient.extractGroqEntities(transcription, dateContext, state);
             metricsService.recordLlm(System.currentTimeMillis() - startLlm);
             metricsService.recordRouting("llm");
@@ -229,7 +288,7 @@ public class VoiceService {
             intent = "RESCHEDULE";
         }
 
-        log.info("Classified Intent: {}", intent);
+        log.debug("Classified Intent: {}", intent);
 
         // Failsafe Priority Order
         if (state.getLastAskedField() != null) {
@@ -250,11 +309,12 @@ public class VoiceService {
             state.resetRepeatCount();
             String reschMsg = "ठीक है, आप किस दिन अपॉइंटमेंट रखना चाहेंगे?";
             state.appendMessage("assistant", reschMsg);
-            log.info("RESCHEDULE triggered from POST_CONFIRM");
+            log.debug("RESCHEDULE triggered from POST_CONFIRM");
             long startTts = System.currentTimeMillis();
             String audioBase64 = sarvamClient.synthesizeSpeech(reschMsg);
             metricsService.recordTts(System.currentTimeMillis() - startTts);
             metricsService.recordRequest(System.currentTimeMillis() - startReqTime);
+            log.info("[METRICS] Processed reschedule request. Latency={} ms", System.currentTimeMillis() - startReqTime);
             return new VoiceResponse(transcription, reschMsg, audioBase64, false,
                     state.getSessionId());
         }
@@ -275,6 +335,7 @@ public class VoiceService {
             String audioBase64 = sarvamClient.synthesizeSpeech(aiResponse);
             metricsService.recordTts(System.currentTimeMillis() - startTts);
             metricsService.recordRequest(System.currentTimeMillis() - startReqTime);
+            log.info("[METRICS] Processed hard-end request. Latency={} ms", System.currentTimeMillis() - startReqTime);
             return new VoiceResponse(transcription, aiResponse, audioBase64, true,
                     state.getSessionId());
         }
@@ -288,6 +349,7 @@ public class VoiceService {
                 String audioBase64 = sarvamClient.synthesizeSpeech(answer);
                 metricsService.recordTts(System.currentTimeMillis() - startTts);
                 metricsService.recordRequest(System.currentTimeMillis() - startReqTime);
+                log.info("[METRICS] Processed post-confirm query. Latency={} ms", System.currentTimeMillis() - startReqTime);
                 return new VoiceResponse(transcription, answer, audioBase64, false,
                         state.getSessionId());
             }
@@ -305,12 +367,17 @@ public class VoiceService {
             String audioBase64 = sarvamClient.synthesizeSpeech(aiResponse);
             metricsService.recordTts(System.currentTimeMillis() - startTts);
             metricsService.recordRequest(System.currentTimeMillis() - startReqTime);
+            log.info("[METRICS] Processed confirmed query. Latency={} ms", System.currentTimeMillis() - startReqTime);
             return new VoiceResponse(transcription, aiResponse, audioBase64, false,
                     state.getSessionId());
         }
 
         int wordCount = transcription.split("\\s+").length;
         if (wordCount <= 3 && state.getLastAskedField() != null) {
+            extracted.setIsOutOfScope(false);
+        }
+
+        if (state.getDepartment() != null || state.getSuggestedDepartment() != null) {
             extracted.setIsOutOfScope(false);
         }
 
@@ -323,11 +390,12 @@ public class VoiceService {
             String audioBase64 = sarvamClient.synthesizeSpeech(oosMsg);
             metricsService.recordTts(System.currentTimeMillis() - startTts);
             metricsService.recordRequest(System.currentTimeMillis() - startReqTime);
+            log.info("[METRICS] Processed Out-Of-Scope request. Latency={} ms", System.currentTimeMillis() - startReqTime);
             return new VoiceResponse(transcription, oosMsg, audioBase64, false,
                     state.getSessionId());
         }
 
-        log.info("Extracted: name={}, dept={}, date={}, time={}", extracted.getName(),
+        log.debug("Extracted: name={}, dept={}, date={}, time={}", extracted.getName(),
                 extracted.getDepartment(), extracted.getDate(), extracted.getTime());
 
         boolean timeInvalid = false;
@@ -340,23 +408,23 @@ public class VoiceService {
             String cleanText = transcription.replaceAll("[।.,!?\\s]+", "").trim();
 
             if (state.getRepeatCount() >= 2 && state.getLastAskedField() != null) {
-                log.info("Loop detected (repeat={}), force-accepting for: {}", state.getRepeatCount(),
+                log.debug("Loop detected (repeat={}), force-accepting for: {}", state.getRepeatCount(),
                         state.getLastAskedField());
                 forceAcceptForField(state, cleanText, transcription, extracted);
                 state.resetRepeatCount();
             } else {
                 // Sequential hydration based on the expected field first
                 String expectedField = state.getLastAskedField();
-                if ("name".equals(expectedField) && state.getPatientName() == null) {
+                if ("name".equals(expectedField)) {
                     String val = extracted.getName();
                     if (isValidValue(val) && isValidName(val)) {
                         state.setPatientName(val);
                     } else if (isValidName(cleanText)) {
                         state.setPatientName(cleanText);
-                        log.info("Name via heuristic fallback: {}", cleanText);
+                        log.debug("Name via heuristic fallback: {}", cleanText);
                     }
-                } else if ("department".equals(expectedField) && state.getDepartment() == null) {
-                    String val = normalizeDepartment(extracted.getDepartment());
+                } else if ("department".equals(expectedField)) {
+                    String val = normalizeDepartment(extracted.getDepartment() != null ? extracted.getDepartment() : explicitDept);
                     if (isValidValue(val)) {
                         state.setDepartment(val);
                     } else {
@@ -365,20 +433,21 @@ public class VoiceService {
                             state.setDepartment(fallback);
                         }
                     }
-                } else if ("date".equals(expectedField) && (state.getDate() == null || state.getMode() == SessionState.Mode.RESCHEDULE)) {
+                } else if ("date".equals(expectedField)) {
                     String weekdayDate = speechFormatter.resolveWeekdayFromText(transcription);
                     String val = (weekdayDate != null) ? weekdayDate : extracted.getDate();
-                    log.info("Date candidate: weekday={}, llm={}, using={}", weekdayDate, extracted.getDate(), val);
+                    log.debug("Date candidate: weekday={}, llm={}, using={}", weekdayDate, extracted.getDate(), val);
                     if (isValidValue(val) && val.contains(",")) {
                         systemData = "MULTI_DATE";
                     } else if (isValidValue(val)) {
                         if (isPastDate(val)) {
                             systemData = "PAST_DATE";
+                            state.setDate(null);
                         } else {
                             state.setDate(val);
                         }
                     }
-                } else if ("time".equals(expectedField) && state.getTime() == null) {
+                } else if ("time".equals(expectedField)) {
                     String candidateTime = isValidValue(extracted.getTime()) ? extracted.getTime() : null;
                     if (candidateTime == null && !transcription.replaceAll("[^0-9]", "").isEmpty()) {
                         candidateTime = transcription.trim();
@@ -390,9 +459,11 @@ public class VoiceService {
                                 state.setTime(parsedTime);
                             } else {
                                 timeInvalid = true;
+                                state.setTime(null);
                             }
                         } else {
                             timeInvalid = true;
+                            state.setTime(null);
                         }
                     }
                 }
@@ -405,9 +476,11 @@ public class VoiceService {
                         state.setPatientName(eName);
                     }
                     // Department fallback
-                    String eDept = normalizeDepartment(extracted.getDepartment());
-                    if (isValidValue(eDept) && state.getDepartment() == null) {
-                        state.setDepartment(eDept);
+                    if (!"department_suggestion".equals(state.getLastAskedField())) {
+                        String eDept = normalizeDepartment(extracted.getDepartment() != null ? extracted.getDepartment() : explicitDept);
+                        if (isValidValue(eDept) && state.getDepartment() == null) {
+                            state.setDepartment(eDept);
+                        }
                     }
                     // Date fallback
                     String _weekdayDate = speechFormatter.resolveWeekdayFromText(transcription);
@@ -415,6 +488,7 @@ public class VoiceService {
                     if (isValidValue(eDate) && (state.getDate() == null || state.getMode() == SessionState.Mode.RESCHEDULE)) {
                         if (isPastDate(eDate)) {
                             systemData = "PAST_DATE";
+                            state.setDate(null);
                         } else {
                             state.setDate(eDate);
                         }
@@ -428,6 +502,7 @@ public class VoiceService {
                                 state.setTime(parsedTime);
                             } else {
                                 timeInvalid = true;
+                                state.setTime(null);
                             }
                         }
                     }
@@ -436,14 +511,19 @@ public class VoiceService {
         }
 
         boolean justEnteredConfirmation = false;
-        if (state.getPatientName() != null && state.getDepartment() != null && state.getDate() != null
-                && state.getTime() != null && !state.isConfirmed()) {
+        if (areAllSlotsValid(state) && !state.isConfirmed()) {
             if (state.getMode() == SessionState.Mode.BOOKING || state.getMode() == SessionState.Mode.RESCHEDULE) {
                 state.setMode(SessionState.Mode.CONFIRMATION);
                 justEnteredConfirmation = true;
                 if (state.getAssignedDoctor() == null) {
                     state.setAssignedDoctor(clinicService.matchDoctorRaw(state));
                 }
+            }
+        } else {
+            if (state.getMode() == SessionState.Mode.CONFIRMATION || state.getMode() == SessionState.Mode.POST_CONFIRM) {
+                state.setMode(SessionState.Mode.BOOKING);
+                state.setConfirmed(false);
+                log.info("[STATE CORRECTION] Mode demoted to BOOKING because slots are not all valid.");
             }
         }
 
@@ -517,12 +597,12 @@ public class VoiceService {
                 if (state.getMode() == SessionState.Mode.RESCHEDULE) {
                     String _wd = speechFormatter.resolveWeekdayFromText(transcription);
                     if (_wd != null && !_wd.equals(state.getDate())) {
-                        log.info("RESCHEDULE: date updated from query: {} → {}", state.getDate(), _wd);
+                        log.debug("RESCHEDULE: date updated from query: {} → {}", state.getDate(), _wd);
                         state.setDate(_wd);
                     } else if (isValidValue(extracted.getDate()) && !extracted.getDate().contains(",")) {
                         String llmD = extracted.getDate();
                         if (!llmD.equals(state.getDate()) && !isPastDate(llmD)) {
-                            log.info("RESCHEDULE: date updated from LLM query: {} → {}", state.getDate(), llmD);
+                            log.debug("RESCHEDULE: date updated from LLM query: {} → {}", state.getDate(), llmD);
                             state.setDate(llmD);
                         }
                     }
@@ -530,13 +610,33 @@ public class VoiceService {
                 systemData = clinicService.buildAvailabilityResponse(state);
             }
         } else if (state.getMode() == SessionState.Mode.BOOKING || state.getMode() == SessionState.Mode.RESCHEDULE) {
-            if (state.getPatientName() == null) {
+            if (state.getPatientName() == null && state.getSuggestedDepartment() == null) {
                 nextAction = "ASK_NAME";
                 state.setLastAskedField("name");
                 state.incrementRepeatCount();
             } else if (state.getDepartment() == null) {
-                nextAction = "ASK_DEPARTMENT";
-                state.setLastAskedField("department");
+                if (state.getSuggestedDepartment() != null) {
+                    double confidence = state.getSuggestedDeptConfidence();
+                    if (confidence >= 0.95) {
+                        nextAction = "CONFIRM_DEPARTMENT_SUGGESTION_HIGH";
+                        state.setLastAskedField("department_suggestion");
+                    } else if (confidence >= 0.80) {
+                        nextAction = "CONFIRM_DEPARTMENT_SUGGESTION_MEDIUM";
+                        state.setLastAskedField("department_suggestion");
+                    } else {
+                        // Low confidence, ask directly
+                        nextAction = "ASK_DEPARTMENT";
+                        state.setLastAskedField("department");
+                        state.setSuggestedDepartment(null); // Clear suggested
+                    }
+                } else {
+                    nextAction = "ASK_DEPARTMENT";
+                    state.setLastAskedField("department");
+                    state.incrementRepeatCount();
+                }
+            } else if (state.getPatientName() == null) {
+                nextAction = "ASK_NAME";
+                state.setLastAskedField("name");
                 state.incrementRepeatCount();
             } else if (state.getDate() == null) {
                 nextAction = "ASK_DATE";
@@ -570,7 +670,7 @@ public class VoiceService {
         }
 
         String contextStr = buildLLMContext(state, nextAction, systemData);
-        log.info("Generated LLM Context:\n{}", contextStr);
+        log.debug("Generated LLM Context:\n{}", contextStr);
 
         String aiResponse;
         switch (nextAction) {
@@ -578,6 +678,14 @@ public class VoiceService {
             case "ASK_DEPARTMENT" -> aiResponse = state.getRepeatCount() <= 1
                     ? "किस विभाग में दिखाना है?"
                     : "कृपया बताएं आपको किस तरह के डॉक्टर को दिखाना है, जैसे हड्डी, दिल, नसें या त्वचा।";
+            case "CONFIRM_DEPARTMENT_SUGGESTION_HIGH" -> {
+                String deptHi = speechFormatter.formatDeptName(state.getSuggestedDepartment());
+                aiResponse = "आपको " + deptHi + " विभाग में दिखाना उचित रहेगा। क्या मैं यही विभाग चुनूँ?";
+            }
+            case "CONFIRM_DEPARTMENT_SUGGESTION_MEDIUM" -> {
+                String deptHi = speechFormatter.formatDeptName(state.getSuggestedDepartment());
+                aiResponse = "आपको " + deptHi + " या किसी अन्य विभाग में दिखाना है?";
+            }
             case "ASK_DATE" -> aiResponse = state.getRepeatCount() <= 1
                     ? "किस दिन आना चाहेंगे?"
                     : (state.getRepeatCount() == 2
@@ -601,7 +709,7 @@ public class VoiceService {
                 String docN = speechFormatter.formatDoctorName(state.getAssignedDoctor());
                 String dept = speechFormatter.formatDeptName(state.getDepartment());
                 aiResponse = "आपका अपॉइंटमेंट " + dayH + ", " + dateH + " को "
-                        + timeN + " " + docN + " (" + dept + " विभाग) के साथ है, क्या मैं इसे कन्फर्म कर दूँ?";
+                         + timeN + " " + docN + " (" + dept + " विभाग) के साथ है, क्या मैं इसे कन्फर्म कर दूँ?";
             }
             default -> {
                 try {
@@ -613,9 +721,17 @@ public class VoiceService {
         }
 
         state.appendMessage("assistant", aiResponse);
-        log.info("AI Response: {}", aiResponse);
+        log.debug("AI Response: {}", aiResponse);
 
-        log.info("Synthesizing speech...");
+        log.info("[STATE TRANSITION] SessionId={}, Mode={}, ExpectedField={}, SuggestedDept={}, ConfirmedDept={}, NextAction={}",
+                 state.getSessionId(),
+                 state.getMode(),
+                 state.getLastAskedField() != null ? state.getLastAskedField() : "None",
+                 state.getSuggestedDepartment() != null ? state.getSuggestedDepartment() : "None",
+                 state.getDepartment() != null ? state.getDepartment() : "None",
+                 nextAction);
+
+        log.debug("Synthesizing speech...");
         String audioBase64;
         try {
             long startTts = System.currentTimeMillis();
@@ -627,6 +743,7 @@ public class VoiceService {
         }
 
         metricsService.recordRequest(System.currentTimeMillis() - startReqTime);
+        log.info("[METRICS] Processed active request. Latency={} ms", System.currentTimeMillis() - startReqTime);
         return new VoiceResponse(transcription, aiResponse, audioBase64, endCall, state.getSessionId());
     }
 
@@ -639,7 +756,7 @@ public class VoiceService {
             case "name" -> {
                 if (state.getPatientName() == null && isValidName(cleanText)) {
                     state.setPatientName(cleanText);
-                    System.out.println("[LOG] Force-accepted name: " + cleanText);
+                    log.debug("Force-accepted name: {}", cleanText);
                 }
             }
             case "department" -> {
@@ -648,14 +765,14 @@ public class VoiceService {
                             isValidValue(extracted.getDepartment()) ? extracted.getDepartment() : cleanText);
                     if (isValidValue(dept)) {
                         state.setDepartment(dept);
-                        System.out.println("[LOG] Force-accepted department: " + dept);
+                        log.debug("Force-accepted department: {}", dept);
                     }
                 }
             }
             case "date" -> {
                 if (state.getDate() == null && isValidValue(extracted.getDate()) && !isPastDate(extracted.getDate())) {
                     state.setDate(extracted.getDate());
-                    System.out.println("[LOG] Force-accepted date: " + extracted.getDate());
+                    log.debug("Force-accepted date: {}", extracted.getDate());
                 }
             }
             case "time" -> {
@@ -666,7 +783,7 @@ public class VoiceService {
                         parsed = java.time.LocalTime.of(12, 0);
                     }
                     state.setTime(parsed);
-                    System.out.println("[LOG] Force-accepted time: " + parsed);
+                    log.debug("Force-accepted time: {}", parsed);
                 }
             }
         }
@@ -723,6 +840,30 @@ public class VoiceService {
         return false;
     }
 
+    private String getExplicitDepartment(String transcription) {
+        if (transcription == null) return null;
+        String s = transcription.toLowerCase().trim();
+        if (s.contains("cardiology") || s.contains("कार्डियोलॉजी")) {
+            return "Cardiology";
+        }
+        if (s.contains("orthopedic") || s.contains("ऑर्थोपेडिक")) {
+            return "Orthopedic";
+        }
+        if (s.contains("neurology") || s.contains("न्यूरोलॉजी")) {
+            return "Neurology";
+        }
+        if (s.contains("dermatology") || s.contains("डर्मेटोलॉजी")) {
+            return "Dermatology";
+        }
+        if (s.contains("general physician") || s.contains("जनरल फिजिशियन") || s.contains("samanya physician") || s.contains("सामान्य फिजिशियन")) {
+            return "General Physician";
+        }
+        if (s.contains("pediatrics") || s.contains("पीडियाट्रिक्स") || s.contains("बाल रोग")) {
+            return "Pediatrics";
+        }
+        return null;
+    }
+
     private String normalizeDepartment(String input) {
         if (input == null)
             return null;
@@ -745,7 +886,13 @@ public class VoiceService {
             return "General Physician";
         if (s.contains("paed") || s.contains("pedia") || s.contains("child") || s.contains("बच्च"))
             return "Pediatrics";
-        return input;
+        
+        for (String dept : SessionState.ALLOWED_DEPARTMENTS) {
+            if (dept.equalsIgnoreCase(s)) {
+                return dept;
+            }
+        }
+        return null;
     }
 
     private boolean isPastDate(String dateStr) {
@@ -757,6 +904,22 @@ public class VoiceService {
         } catch (Exception e) {
             return false;
         }
+    }
+
+    private boolean areAllSlotsValid(SessionState state) {
+        if (state.getPatientName() == null || state.getPatientName().trim().isEmpty() || !isValidName(state.getPatientName())) {
+            return false;
+        }
+        if (state.getDepartment() == null || !SessionState.ALLOWED_DEPARTMENTS.contains(state.getDepartment())) {
+            return false;
+        }
+        if (state.getDate() == null || isPastDate(state.getDate()) || state.getDate().contains(",")) {
+            return false;
+        }
+        if (state.getTime() == null) {
+            return false;
+        }
+        return true;
     }
 
     private String buildBookingSummary(SessionState state) {

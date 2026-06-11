@@ -12,9 +12,11 @@ import java.util.Map;
 public class ClinicService {
 
     private final SpeechFormatter speechFormatter;
+    private final TimeNormalizationService timeNormalizationService;
 
-    public ClinicService(SpeechFormatter speechFormatter) {
+    public ClinicService(SpeechFormatter speechFormatter, TimeNormalizationService timeNormalizationService) {
         this.speechFormatter = speechFormatter;
+        this.timeNormalizationService = timeNormalizationService;
     }
 
     public String matchDoctorRaw(SessionState state) {
@@ -97,8 +99,8 @@ public class ClinicService {
             List<String> days = (List<String>) doc.get("days");
             if (!days.contains(dayOfWeek)) continue;
             try {
-                int slotStart = parseToMinutes((String) doc.get("start"));
-                int slotEnd   = parseToMinutes((String) doc.get("end"));
+                int slotStart = timeNormalizationService.parseToMinutes((String) doc.get("start"));
+                int slotEnd   = timeNormalizationService.parseToMinutes((String) doc.get("end"));
                 int requested = time.getHour() * 60 + time.getMinute();
                 return requested >= slotStart && requested < slotEnd;
             } catch (Exception e) {
@@ -106,30 +108,5 @@ public class ClinicService {
             }
         }
         return true;
-    }
-
-    public int parseToMinutes(String timeStr) {
-        if (timeStr == null) return -1;
-        String s = timeStr.trim().toUpperCase();
-        try {
-            if (s.contains(":")) {
-                String[] parts = s.replace("AM", "").replace("PM", "").trim().split(":");
-                int h = Integer.parseInt(parts[0].trim());
-                int m = parts.length > 1 ? Integer.parseInt(parts[1].trim()) : 0;
-                if (s.contains("PM") && h != 12) h += 12;
-                if (s.contains("AM") && h == 12) h = 0;
-                return h * 60 + m;
-            } else {
-                String num = s.replace("AM", "").replace("PM", "").replace("बजे", "").trim();
-                num = num.replaceAll("[^0-9]", "");
-                if (num.isEmpty()) return -1;
-                int h = Integer.parseInt(num);
-                if (s.contains("PM") && h != 12) h += 12;
-                if (s.contains("AM") && h == 12) h = 0;
-                return h * 60;
-            }
-        } catch (Exception e) {
-            return -1;
-        }
     }
 }
