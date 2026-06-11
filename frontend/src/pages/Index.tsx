@@ -1,12 +1,12 @@
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { Button } from "@/shared/components/ui/button";
+import { Card, CardContent } from "@/shared/components/ui/card";
+import { Input } from "@/shared/components/ui/input";
+import { Textarea } from "@/shared/components/ui/textarea";
 import { useState } from "react";
 import { toast } from "sonner";
-import EnhancedInquiryForm from "@/components/EnhancedInquiryForm";
-import VoiceDemoModal from "@/components/VoiceDemoModal";
-import { sendContactEmail } from "@/services/emailService";
+import EnhancedInquiryForm from "@/features/contact/components/EnhancedInquiryForm";
+import VoiceDemoModal from "@/features/voice/components/VoiceDemoModal";
+import { sendContactEmail } from "@/features/contact/services/emailService";
 
 const Index = () => {
   const [formData, setFormData] = useState({
