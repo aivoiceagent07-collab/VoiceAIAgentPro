@@ -15,15 +15,17 @@ public class DeterministicExtractionService {
 
     private final SpeechFormatter speechFormatter;
     private final InputValidatorService inputValidatorService;
+    private final TimeNormalizationService timeNormalizationService;
 
     private static final Set<String> INVALID_NAME_TOKENS = Set.of(
             "appointment", "अपॉइंटमेंट", "confirmation", "कन्फर्म", "booking",
             "reschedule", "रीशेड्यूल", "neurology", "न्यूरोलॉजी", "orthopedic",
             "cardiology", "dermatology", "pediatrics", "physician", "doctor");
 
-    public DeterministicExtractionService(SpeechFormatter speechFormatter, InputValidatorService inputValidatorService) {
+    public DeterministicExtractionService(SpeechFormatter speechFormatter, InputValidatorService inputValidatorService, TimeNormalizationService timeNormalizationService) {
         this.speechFormatter = speechFormatter;
         this.inputValidatorService = inputValidatorService;
+        this.timeNormalizationService = timeNormalizationService;
     }
 
     public ExtractionResult extract(String text, SessionState state) {
@@ -80,10 +82,10 @@ public class DeterministicExtractionService {
 
         // 3. TIME
         if ("time".equals(state.getLastAskedField())) {
-            String extractedTime = extractTimePattern(text);
-            if (extractedTime != null) {
+            java.time.LocalTime parsed = timeNormalizationService.parseTimeToLocalTime(text);
+            if (parsed != null) {
                 result.setSuccess(true);
-                result.setTime(extractedTime);
+                result.setTime(parsed.toString());
                 result.setIntent("PROVIDE_INFO");
                 return result;
             }
@@ -114,39 +116,7 @@ public class DeterministicExtractionService {
         return result;
     }
 
-    private String extractTimePattern(String text) {
-        String clean = text.toLowerCase().trim();
-        Pattern timePattern = Pattern.compile("(\\d{1,2})\\s*(?:[:.]\\s*(\\d{2}))?\\s*(am|pm|बजे)?");
-        Matcher matcher = timePattern.matcher(clean);
-        if (matcher.find()) {
-            String hour = matcher.group(1);
-            String min = matcher.group(2) != null ? matcher.group(2) : "00";
-            String meridian = matcher.group(3);
 
-            int h = Integer.parseInt(hour);
-            if (h >= 1 && h <= 24) {
-                if ("pm".equals(meridian) && h != 12) {
-                    h += 12;
-                } else if ("am".equals(meridian) && h == 12) {
-                    h = 0;
-                } else if ("बजे".equals(meridian)) {
-                    if (h >= 1 && h <= 8) {
-                        h += 12;
-                    }
-                } else if (meridian == null) {
-                    if (clean.contains("सुबह") && h == 12) {
-                        h = 0;
-                    } else if ((clean.contains("दोपहर") || clean.contains("शाम") || clean.contains("रात")) && h != 12 && h < 12) {
-                        h += 12;
-                    } else if (h >= 1 && h <= 8) {
-                        h += 12;
-                    }
-                }
-                return String.format("%02d:%s", h, min);
-            }
-        }
-        return null;
-    }
 
     public static class ExtractionResult {
         private boolean success = false;

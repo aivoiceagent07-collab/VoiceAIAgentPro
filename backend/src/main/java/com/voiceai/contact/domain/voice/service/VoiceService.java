@@ -73,27 +73,29 @@ public class VoiceService {
                 state.setGreetingDone(true);
                 String greetMsg = "नमस्ते, मैं क्लिनिक की रिसेप्शनिस्ट हूँ। मैं आपकी क्या मदद कर सकती हूँ?";
                 state.appendMessage("assistant", greetMsg);
-                log.info("Initial greeting sent.");
+                log.debug("Initial greeting sent.");
                 long startTts = System.currentTimeMillis();
                 String audioBase64 = sarvamClient.synthesizeSpeech(greetMsg);
                 metricsService.recordTts(System.currentTimeMillis() - startTts);
                 metricsService.recordRequest(System.currentTimeMillis() - startReqTime);
+                log.info("[METRICS] Processed initial greeting. Latency={} ms", System.currentTimeMillis() - startReqTime);
                 return new VoiceResponse("", greetMsg, audioBase64, false,
                         state.getSessionId());
             } else {
                 metricsService.recordRequest(System.currentTimeMillis() - startReqTime);
+                log.info("[METRICS] Processed empty greeting. Latency={} ms", System.currentTimeMillis() - startReqTime);
                 return new VoiceResponse("", "", "", false, state.getSessionId());
             }
         }
 
         // 2. STT (Speech to Text) via Sarvam
-        log.info("Transcribing audio...");
+        log.debug("Transcribing audio...");
         String transcription;
         long startStt = System.currentTimeMillis();
         try {
             transcription = sarvamClient.transcribeAudio(audio);
             metricsService.recordStt(System.currentTimeMillis() - startStt);
-            log.info("Transcription: {}", transcription);
+            log.debug("Transcription: {}", transcription);
         } catch (Exception e) {
             log.error("Failed STT: {}", e.getMessage());
             metricsService.recordStt(System.currentTimeMillis() - startStt);
@@ -101,12 +103,13 @@ public class VoiceService {
         }
 
         if (transcription == null || transcription.trim().isEmpty()) {
-            log.info("No speech detected. Returning fallback audio directly and skipping LLM.");
+            log.debug("No speech detected. Returning fallback audio directly and skipping LLM.");
             String fallbackMsg = "मुझे आपकी आवाज़ सुनाई नहीं दी। कृपया फिर से प्रयास करें।";
             long startTts = System.currentTimeMillis();
             String audioBase64 = sarvamClient.synthesizeSpeech(fallbackMsg);
             metricsService.recordTts(System.currentTimeMillis() - startTts);
             metricsService.recordRequest(System.currentTimeMillis() - startReqTime);
+            log.info("[METRICS] Processed empty transcription fallback. Latency={} ms", System.currentTimeMillis() - startReqTime);
             return new VoiceResponse("", fallbackMsg, audioBase64, false, state.getSessionId());
         }
 
@@ -120,17 +123,18 @@ public class VoiceService {
                 .replace("काल", "कल")
                 .replace("आज", "आज");
         transcription = normalizeDepartment(transcription);
-        log.info("Normalized input: {}", transcription);
+        log.debug("Normalized input: {}", transcription);
 
         // Input validation
         if (!inputValidatorService.isValidInput(transcription, state.getLastAskedField())) {
-            log.info("Input rejected by validator: {}", transcription);
+            log.debug("Input rejected by validator: {}", transcription);
             String errorMsg = "माफ़ कीजिए, मुझे समझ नहीं आया। क्या आप फिर से बता सकते हैं?";
             state.appendMessage("assistant", errorMsg);
             long startTts = System.currentTimeMillis();
             String audioBase64 = sarvamClient.synthesizeSpeech(errorMsg);
             metricsService.recordTts(System.currentTimeMillis() - startTts);
             metricsService.recordRequest(System.currentTimeMillis() - startReqTime);
+            log.info("[METRICS] Processed validation rejection. Latency={} ms", System.currentTimeMillis() - startReqTime);
             return new VoiceResponse(transcription, errorMsg, audioBase64, false,
                     state.getSessionId());
         }
@@ -142,10 +146,20 @@ public class VoiceService {
         DeterministicExtractionService.ExtractionResult detResult = deterministicExtractionService.extract(transcription, state);
         String predictedDept = null;
         if (state.getDepartment() == null) {
-            predictedDept = departmentRoutingService.route(transcription);
-            if (predictedDept != null) {
+            DepartmentRoutingService.DepartmentRoutingResult routingResult = departmentRoutingService.routeWithDetails(transcription);
+            if (routingResult != null) {
+                predictedDept = routingResult.getDepartment();
                 state.setDepartment(predictedDept);
-                metricsService.recordRouting(transcription.toLowerCase().contains(predictedDept.toLowerCase()) ? "dictionary" : "similarity");
+                log.info("[ROUTING] Department={}, Source={}, Confidence={}", 
+                         routingResult.getDepartment(), routingResult.getLayer(), routingResult.getConfidence());
+                
+                String sourceKey = "llm";
+                if (routingResult.getLayer().startsWith("Exact") || routingResult.getLayer().startsWith("Keyword")) {
+                    sourceKey = "dictionary";
+                } else if (routingResult.getLayer().startsWith("Semantic")) {
+                    sourceKey = "similarity";
+                }
+                metricsService.recordRouting(sourceKey);
             }
         }
         if ("department".equals(state.getLastAskedField()) && predictedDept != null) {
@@ -157,13 +171,13 @@ public class VoiceService {
         LlmExtractionResponse extracted;
         String intent;
         if (detResult.isSuccess()) {
-            log.info("Deterministic extraction bypass triggered. ExpectedField={}", state.getLastAskedField());
+            log.debug("Deterministic extraction bypass triggered. ExpectedField={}", state.getLastAskedField());
             extracted = new LlmExtractionResponse();
             extracted.setIntent(detResult.getIntent());
             extracted.setName(detResult.getName());
             extracted.setDepartment(detResult.getDepartment() != null ? detResult.getDepartment() : state.getDepartment());
             extracted.setDate(detResult.getDate());
-            extracted.setTime(detResult.getTime());
+            extracted.setTime(detResult.getTime() != null ? detResult.getTime() : null);
             extracted.setIsConfirming(detResult.getIsConfirming());
             extracted.setIsQuerying(detResult.getIsQuerying());
             extracted.setIsOutOfScope(detResult.getIsOutOfScope());
@@ -171,7 +185,7 @@ public class VoiceService {
         } else {
             long startLlm = System.currentTimeMillis();
             String dateContext = dateNormalizerService.getDateContext(transcription);
-            log.info("Extracting AI entities for: {}", transcription);
+            log.debug("Extracting AI entities for: {}", transcription);
             extracted = groqClient.extractGroqEntities(transcription, dateContext, state);
             metricsService.recordLlm(System.currentTimeMillis() - startLlm);
             metricsService.recordRouting("llm");
@@ -229,7 +243,7 @@ public class VoiceService {
             intent = "RESCHEDULE";
         }
 
-        log.info("Classified Intent: {}", intent);
+        log.debug("Classified Intent: {}", intent);
 
         // Failsafe Priority Order
         if (state.getLastAskedField() != null) {
@@ -250,11 +264,12 @@ public class VoiceService {
             state.resetRepeatCount();
             String reschMsg = "ठीक है, आप किस दिन अपॉइंटमेंट रखना चाहेंगे?";
             state.appendMessage("assistant", reschMsg);
-            log.info("RESCHEDULE triggered from POST_CONFIRM");
+            log.debug("RESCHEDULE triggered from POST_CONFIRM");
             long startTts = System.currentTimeMillis();
             String audioBase64 = sarvamClient.synthesizeSpeech(reschMsg);
             metricsService.recordTts(System.currentTimeMillis() - startTts);
             metricsService.recordRequest(System.currentTimeMillis() - startReqTime);
+            log.info("[METRICS] Processed reschedule request. Latency={} ms", System.currentTimeMillis() - startReqTime);
             return new VoiceResponse(transcription, reschMsg, audioBase64, false,
                     state.getSessionId());
         }
@@ -275,6 +290,7 @@ public class VoiceService {
             String audioBase64 = sarvamClient.synthesizeSpeech(aiResponse);
             metricsService.recordTts(System.currentTimeMillis() - startTts);
             metricsService.recordRequest(System.currentTimeMillis() - startReqTime);
+            log.info("[METRICS] Processed hard-end request. Latency={} ms", System.currentTimeMillis() - startReqTime);
             return new VoiceResponse(transcription, aiResponse, audioBase64, true,
                     state.getSessionId());
         }
@@ -288,6 +304,7 @@ public class VoiceService {
                 String audioBase64 = sarvamClient.synthesizeSpeech(answer);
                 metricsService.recordTts(System.currentTimeMillis() - startTts);
                 metricsService.recordRequest(System.currentTimeMillis() - startReqTime);
+                log.info("[METRICS] Processed post-confirm query. Latency={} ms", System.currentTimeMillis() - startReqTime);
                 return new VoiceResponse(transcription, answer, audioBase64, false,
                         state.getSessionId());
             }
@@ -305,6 +322,7 @@ public class VoiceService {
             String audioBase64 = sarvamClient.synthesizeSpeech(aiResponse);
             metricsService.recordTts(System.currentTimeMillis() - startTts);
             metricsService.recordRequest(System.currentTimeMillis() - startReqTime);
+            log.info("[METRICS] Processed confirmed query. Latency={} ms", System.currentTimeMillis() - startReqTime);
             return new VoiceResponse(transcription, aiResponse, audioBase64, false,
                     state.getSessionId());
         }
@@ -323,11 +341,12 @@ public class VoiceService {
             String audioBase64 = sarvamClient.synthesizeSpeech(oosMsg);
             metricsService.recordTts(System.currentTimeMillis() - startTts);
             metricsService.recordRequest(System.currentTimeMillis() - startReqTime);
+            log.info("[METRICS] Processed Out-Of-Scope request. Latency={} ms", System.currentTimeMillis() - startReqTime);
             return new VoiceResponse(transcription, oosMsg, audioBase64, false,
                     state.getSessionId());
         }
 
-        log.info("Extracted: name={}, dept={}, date={}, time={}", extracted.getName(),
+        log.debug("Extracted: name={}, dept={}, date={}, time={}", extracted.getName(),
                 extracted.getDepartment(), extracted.getDate(), extracted.getTime());
 
         boolean timeInvalid = false;
@@ -340,7 +359,7 @@ public class VoiceService {
             String cleanText = transcription.replaceAll("[।.,!?\\s]+", "").trim();
 
             if (state.getRepeatCount() >= 2 && state.getLastAskedField() != null) {
-                log.info("Loop detected (repeat={}), force-accepting for: {}", state.getRepeatCount(),
+                log.debug("Loop detected (repeat={}), force-accepting for: {}", state.getRepeatCount(),
                         state.getLastAskedField());
                 forceAcceptForField(state, cleanText, transcription, extracted);
                 state.resetRepeatCount();
@@ -353,10 +372,10 @@ public class VoiceService {
                         state.setPatientName(val);
                     } else if (isValidName(cleanText)) {
                         state.setPatientName(cleanText);
-                        log.info("Name via heuristic fallback: {}", cleanText);
+                        log.debug("Name via heuristic fallback: {}", cleanText);
                     }
                 } else if ("department".equals(expectedField) && state.getDepartment() == null) {
-                    String val = normalizeDepartment(extracted.getDepartment());
+                    String val = normalizeDepartment(extracted.getDepartment() != null ? extracted.getDepartment() : predictedDept);
                     if (isValidValue(val)) {
                         state.setDepartment(val);
                     } else {
@@ -368,7 +387,7 @@ public class VoiceService {
                 } else if ("date".equals(expectedField) && (state.getDate() == null || state.getMode() == SessionState.Mode.RESCHEDULE)) {
                     String weekdayDate = speechFormatter.resolveWeekdayFromText(transcription);
                     String val = (weekdayDate != null) ? weekdayDate : extracted.getDate();
-                    log.info("Date candidate: weekday={}, llm={}, using={}", weekdayDate, extracted.getDate(), val);
+                    log.debug("Date candidate: weekday={}, llm={}, using={}", weekdayDate, extracted.getDate(), val);
                     if (isValidValue(val) && val.contains(",")) {
                         systemData = "MULTI_DATE";
                     } else if (isValidValue(val)) {
@@ -405,7 +424,7 @@ public class VoiceService {
                         state.setPatientName(eName);
                     }
                     // Department fallback
-                    String eDept = normalizeDepartment(extracted.getDepartment());
+                    String eDept = normalizeDepartment(extracted.getDepartment() != null ? extracted.getDepartment() : predictedDept);
                     if (isValidValue(eDept) && state.getDepartment() == null) {
                         state.setDepartment(eDept);
                     }
@@ -517,12 +536,12 @@ public class VoiceService {
                 if (state.getMode() == SessionState.Mode.RESCHEDULE) {
                     String _wd = speechFormatter.resolveWeekdayFromText(transcription);
                     if (_wd != null && !_wd.equals(state.getDate())) {
-                        log.info("RESCHEDULE: date updated from query: {} → {}", state.getDate(), _wd);
+                        log.debug("RESCHEDULE: date updated from query: {} → {}", state.getDate(), _wd);
                         state.setDate(_wd);
                     } else if (isValidValue(extracted.getDate()) && !extracted.getDate().contains(",")) {
                         String llmD = extracted.getDate();
                         if (!llmD.equals(state.getDate()) && !isPastDate(llmD)) {
-                            log.info("RESCHEDULE: date updated from LLM query: {} → {}", state.getDate(), llmD);
+                            log.debug("RESCHEDULE: date updated from LLM query: {} → {}", state.getDate(), llmD);
                             state.setDate(llmD);
                         }
                     }
@@ -570,7 +589,7 @@ public class VoiceService {
         }
 
         String contextStr = buildLLMContext(state, nextAction, systemData);
-        log.info("Generated LLM Context:\n{}", contextStr);
+        log.debug("Generated LLM Context:\n{}", contextStr);
 
         String aiResponse;
         switch (nextAction) {
@@ -601,7 +620,7 @@ public class VoiceService {
                 String docN = speechFormatter.formatDoctorName(state.getAssignedDoctor());
                 String dept = speechFormatter.formatDeptName(state.getDepartment());
                 aiResponse = "आपका अपॉइंटमेंट " + dayH + ", " + dateH + " को "
-                        + timeN + " " + docN + " (" + dept + " विभाग) के साथ है, क्या मैं इसे कन्फर्म कर दूँ?";
+                         + timeN + " " + docN + " (" + dept + " विभाग) के साथ है, क्या मैं इसे कन्फर्म कर दूँ?";
             }
             default -> {
                 try {
@@ -613,9 +632,9 @@ public class VoiceService {
         }
 
         state.appendMessage("assistant", aiResponse);
-        log.info("AI Response: {}", aiResponse);
+        log.debug("AI Response: {}", aiResponse);
 
-        log.info("Synthesizing speech...");
+        log.debug("Synthesizing speech...");
         String audioBase64;
         try {
             long startTts = System.currentTimeMillis();
@@ -627,6 +646,7 @@ public class VoiceService {
         }
 
         metricsService.recordRequest(System.currentTimeMillis() - startReqTime);
+        log.info("[METRICS] Processed active request. Latency={} ms", System.currentTimeMillis() - startReqTime);
         return new VoiceResponse(transcription, aiResponse, audioBase64, endCall, state.getSessionId());
     }
 
@@ -639,7 +659,7 @@ public class VoiceService {
             case "name" -> {
                 if (state.getPatientName() == null && isValidName(cleanText)) {
                     state.setPatientName(cleanText);
-                    System.out.println("[LOG] Force-accepted name: " + cleanText);
+                    log.debug("Force-accepted name: {}", cleanText);
                 }
             }
             case "department" -> {
@@ -648,14 +668,14 @@ public class VoiceService {
                             isValidValue(extracted.getDepartment()) ? extracted.getDepartment() : cleanText);
                     if (isValidValue(dept)) {
                         state.setDepartment(dept);
-                        System.out.println("[LOG] Force-accepted department: " + dept);
+                        log.debug("Force-accepted department: {}", dept);
                     }
                 }
             }
             case "date" -> {
                 if (state.getDate() == null && isValidValue(extracted.getDate()) && !isPastDate(extracted.getDate())) {
                     state.setDate(extracted.getDate());
-                    System.out.println("[LOG] Force-accepted date: " + extracted.getDate());
+                    log.debug("Force-accepted date: {}", extracted.getDate());
                 }
             }
             case "time" -> {
@@ -666,7 +686,7 @@ public class VoiceService {
                         parsed = java.time.LocalTime.of(12, 0);
                     }
                     state.setTime(parsed);
-                    System.out.println("[LOG] Force-accepted time: " + parsed);
+                    log.debug("Force-accepted time: {}", parsed);
                 }
             }
         }

@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.voiceai.contact.domain.voice.util.TtsCache;
 import com.voiceai.contact.domain.voice.service.PerformanceMetricsService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.*;
@@ -20,6 +22,8 @@ import java.util.Map;
 
 @Service
 public class SarvamClient {
+
+    private static final Logger log = LoggerFactory.getLogger(SarvamClient.class);
 
     @Value("${SARVAM_API_KEY:}")
     private String sarvamApiKey;
@@ -80,12 +84,12 @@ public class SarvamClient {
         // 1. Check TTS LRU Cache
         String cachedAudio = ttsCache.get(text);
         if (cachedAudio != null) {
-            System.out.println("[SarvamClient] Cache hit for text: '" + text + "'");
+            log.debug("Cache hit for text: '{}'", text);
             metricsService.recordCacheHit();
             return cachedAudio;
         }
 
-        System.out.println("[SarvamClient] Cache miss for text: '" + text + "'. Requesting TTS...");
+        log.debug("Cache miss for text: '{}'. Requesting TTS...", text);
         metricsService.recordCacheMiss();
         String url = "https://api.sarvam.ai/text-to-speech";
 
