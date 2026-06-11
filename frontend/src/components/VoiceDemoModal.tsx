@@ -40,8 +40,10 @@ const VoiceDemoModal = ({ onClose }: VoiceDemoModalProps) => {
     
     try {
       const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8081';
+      const formData = new FormData();
       const response = await fetch(`${apiBase}/api/voice`, {
         method: "POST",
+        body: formData,
       });
 
       if (!response.ok) {
@@ -86,9 +88,9 @@ const VoiceDemoModal = ({ onClose }: VoiceDemoModalProps) => {
     } catch (error) {
       console.error("Initialization error:", error);
       if (isContinuousRef.current) {
+          stopInteraction(true);
           setState("ERROR");
           setErrorMsg("Failed to connect to the Voice API. Backend may be unreachable.");
-          stopInteraction();
       }
     }
   };
@@ -136,9 +138,9 @@ const VoiceDemoModal = ({ onClose }: VoiceDemoModalProps) => {
       
     } catch (error) {
       console.error("Mic error:", error);
+      stopInteraction(true);
       setState("ERROR");
       setErrorMsg("Microphone access denied. Please allow access to use the continuous demo.");
-      stopInteraction();
     }
   };
 
@@ -196,7 +198,7 @@ const VoiceDemoModal = ({ onClose }: VoiceDemoModalProps) => {
     }
   };
 
-  const stopInteraction = () => {
+  const stopInteraction = (keepErrorState = false) => {
     isContinuousRef.current = false;
     sessionIdRef.current = null;
     cleanupAudio();
@@ -206,7 +208,9 @@ const VoiceDemoModal = ({ onClose }: VoiceDemoModalProps) => {
     if (audioPlaybackRef.current) {
       audioPlaybackRef.current.pause();
     }
-    setState("IDLE");
+    if (!keepErrorState) {
+      setState("IDLE");
+    }
     setVolume(0);
   };
 
@@ -290,9 +294,9 @@ const VoiceDemoModal = ({ onClose }: VoiceDemoModalProps) => {
     } catch (error) {
       console.error("API error:", error);
       if (isContinuousRef.current) {
+          stopInteraction(true);
           setState("ERROR");
           setErrorMsg("Failed to connect to the Voice API. Backend may be unreachable.");
-          stopInteraction();
       }
     }
   };
