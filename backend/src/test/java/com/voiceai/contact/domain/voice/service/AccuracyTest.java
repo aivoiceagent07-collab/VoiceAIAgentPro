@@ -281,4 +281,232 @@ public class AccuracyTest {
         assertNotEquals(SessionState.Mode.CONFIRMATION, state.getMode());
         assertEquals(SessionState.Mode.BOOKING, state.getMode());
     }
+
+    @Test
+    public void testDepartmentSynonymCardiologist() throws Exception {
+        String sessionId = "test-synonym-cardiologist";
+        SessionState state = sessionManagerService.getOrCreateSession(sessionId);
+        state.setPatientName("Rahul");
+        state.setMode(SessionState.Mode.BOOKING);
+        state.setLastAskedField("department");
+
+        MultipartFile mockFile = Mockito.mock(MultipartFile.class);
+        Mockito.when(mockFile.isEmpty()).thenReturn(false);
+
+        Mockito.when(sarvamClient.transcribeAudio(any())).thenReturn("Cardiologist");
+        LlmExtractionResponse ext = new LlmExtractionResponse();
+        ext.setIntent("PROVIDE_INFO");
+        ext.setDepartment("Cardiologist");
+        Mockito.when(groqClient.extractGroqEntities(anyString(), anyString(), any(SessionState.class))).thenReturn(ext);
+        Mockito.when(sarvamClient.synthesizeSpeech(anyString())).thenReturn("dummyAudio");
+
+        VoiceResponse response = voiceService.processVoice(mockFile, state.getSessionId());
+
+        assertEquals("Cardiology", state.getDepartment());
+        assertEquals("date", state.getLastAskedField());
+    }
+
+    @Test
+    public void testColloquialHeartDoctorHindi() throws Exception {
+        String sessionId = "test-colloquial-heart-doctor";
+        SessionState state = sessionManagerService.getOrCreateSession(sessionId);
+        state.setPatientName("Rahul");
+        state.setMode(SessionState.Mode.BOOKING);
+        state.setLastAskedField("department");
+
+        MultipartFile mockFile = Mockito.mock(MultipartFile.class);
+        Mockito.when(mockFile.isEmpty()).thenReturn(false);
+
+        Mockito.when(sarvamClient.transcribeAudio(any())).thenReturn("दिल के डॉक्टर");
+        LlmExtractionResponse ext = new LlmExtractionResponse();
+        ext.setIntent("PROVIDE_INFO");
+        ext.setDepartment("दिल के डॉक्टर");
+        Mockito.when(groqClient.extractGroqEntities(anyString(), anyString(), any(SessionState.class))).thenReturn(ext);
+        Mockito.when(sarvamClient.synthesizeSpeech(anyString())).thenReturn("dummyAudio");
+
+        VoiceResponse response = voiceService.processVoice(mockFile, state.getSessionId());
+
+        assertEquals("Cardiology", state.getDepartment());
+        assertEquals("date", state.getLastAskedField());
+    }
+
+    @Test
+    public void testAvailabilityConflictAlert() throws Exception {
+        String sessionId = "test-availability-conflict";
+        SessionState state = sessionManagerService.getOrCreateSession(sessionId);
+        state.setPatientName("Rahul");
+        state.setDepartment("Cardiology");
+        // Friday is a day for Dr. Nair (11:00 to 15:00)
+        state.setDate("2026-06-12"); // Friday
+        state.setMode(SessionState.Mode.BOOKING);
+        state.setLastAskedField("time");
+
+        MultipartFile mockFile = Mockito.mock(MultipartFile.class);
+        Mockito.when(mockFile.isEmpty()).thenReturn(false);
+
+        Mockito.when(sarvamClient.transcribeAudio(any())).thenReturn("सुबह 10 बजे");
+        LlmExtractionResponse ext = new LlmExtractionResponse();
+        ext.setIntent("PROVIDE_INFO");
+        ext.setTime("10:00 AM");
+        Mockito.when(groqClient.extractGroqEntities(anyString(), anyString(), any(SessionState.class))).thenReturn(ext);
+        Mockito.when(sarvamClient.synthesizeSpeech(anyString())).thenReturn("dummyAudio");
+
+        VoiceResponse response = voiceService.processVoice(mockFile, state.getSessionId());
+
+        assertNull(state.getTime());
+        assertEquals("time", state.getLastAskedField());
+        assertTrue(response.getText().contains("राहुल जी"));
+        assertTrue(response.getText().contains("डॉक्टर नायर"));
+        assertTrue(response.getText().contains("सुबह 11 बजे"));
+        assertTrue(response.getText().contains("दोपहर 3 बजे"));
+    }
+
+    @Test
+    public void testAvailabilityLimitAcceptance() throws Exception {
+        String sessionId = "test-availability-limit";
+        SessionState state = sessionManagerService.getOrCreateSession(sessionId);
+        state.setPatientName("Rahul");
+        state.setDepartment("Cardiology");
+        state.setDate("2026-06-12"); // Friday
+        state.setMode(SessionState.Mode.BOOKING);
+        state.setLastAskedField("time");
+
+        MultipartFile mockFile = Mockito.mock(MultipartFile.class);
+        Mockito.when(mockFile.isEmpty()).thenReturn(false);
+
+        Mockito.when(sarvamClient.transcribeAudio(any())).thenReturn("3:00 PM");
+        LlmExtractionResponse ext = new LlmExtractionResponse();
+        ext.setIntent("PROVIDE_INFO");
+        ext.setTime("15:00");
+        Mockito.when(groqClient.extractGroqEntities(anyString(), anyString(), any(SessionState.class))).thenReturn(ext);
+        Mockito.when(sarvamClient.synthesizeSpeech(anyString())).thenReturn("dummyAudio");
+
+        VoiceResponse response = voiceService.processVoice(mockFile, state.getSessionId());
+
+        assertEquals(java.time.LocalTime.of(15, 0), state.getTime());
+        assertEquals(SessionState.Mode.CONFIRMATION, state.getMode());
+        assertTrue(response.getText().contains("क्या मैं इसे कन्फर्म कर दूँ"));
+    }
+
+    @Test
+    public void testBookingSuccessIncludesName() throws Exception {
+        String sessionId = "test-booking-success";
+        SessionState state = sessionManagerService.getOrCreateSession(sessionId);
+        state.setPatientName("Rahul");
+        state.setDepartment("Cardiology");
+        state.setDate("2026-06-12");
+        state.setTime(java.time.LocalTime.of(12, 0));
+        state.setAssignedDoctor("Dr. Nair");
+        state.setMode(SessionState.Mode.CONFIRMATION);
+        state.setLastAskedField("confirmation");
+
+        MultipartFile mockFile = Mockito.mock(MultipartFile.class);
+        Mockito.when(mockFile.isEmpty()).thenReturn(false);
+
+        Mockito.when(sarvamClient.transcribeAudio(any())).thenReturn("हाँ");
+        LlmExtractionResponse ext = new LlmExtractionResponse();
+        ext.setIntent("CONTINUE");
+        Mockito.when(groqClient.extractGroqEntities(anyString(), anyString(), any(SessionState.class))).thenReturn(ext);
+        Mockito.when(sarvamClient.synthesizeSpeech(anyString())).thenReturn("dummyAudio");
+
+        VoiceResponse response = voiceService.processVoice(mockFile, state.getSessionId());
+
+        assertTrue(state.isConfirmed());
+        assertEquals(SessionState.Mode.POST_CONFIRM, state.getMode());
+        assertTrue(response.getText().contains("धन्यवाद राहुल जी"));
+    }
+
+    @Test
+    public void testExpandedSymptomRouting_LegPain() throws Exception {
+        String sessionId = "test-symptom-legpain";
+        SessionState state = sessionManagerService.getOrCreateSession(sessionId);
+        state.setPatientName("Shardul");
+        state.setMode(SessionState.Mode.BOOKING);
+        state.setLastAskedField("department");
+
+        MultipartFile mockFile = Mockito.mock(MultipartFile.class);
+        Mockito.when(mockFile.isEmpty()).thenReturn(false);
+
+        Mockito.when(sarvamClient.transcribeAudio(any())).thenReturn("मेरे पैर में दर्द है");
+        LlmExtractionResponse ext = new LlmExtractionResponse();
+        ext.setIntent("PROVIDE_INFO");
+        Mockito.when(groqClient.extractGroqEntities(anyString(), anyString(), any(SessionState.class))).thenReturn(ext);
+        Mockito.when(sarvamClient.synthesizeSpeech(anyString())).thenReturn("dummyAudio");
+
+        VoiceResponse response = voiceService.processVoice(mockFile, state.getSessionId());
+
+        assertNull(state.getDepartment());
+        assertEquals("Orthopedic", state.getSuggestedDepartment());
+        assertEquals("department_suggestion", state.getLastAskedField());
+        assertTrue(response.getText().contains("ऑर्थोपेडिक"));
+    }
+
+    @Test
+    public void testExpandedSymptomRouting_Vomiting() throws Exception {
+        String sessionId = "test-symptom-vomiting";
+        SessionState state = sessionManagerService.getOrCreateSession(sessionId);
+        state.setPatientName("Shardul");
+        state.setMode(SessionState.Mode.BOOKING);
+        state.setLastAskedField("department");
+
+        MultipartFile mockFile = Mockito.mock(MultipartFile.class);
+        Mockito.when(mockFile.isEmpty()).thenReturn(false);
+
+        Mockito.when(sarvamClient.transcribeAudio(any())).thenReturn("मुझे उल्टी हो रही है");
+        LlmExtractionResponse ext = new LlmExtractionResponse();
+        ext.setIntent("PROVIDE_INFO");
+        Mockito.when(groqClient.extractGroqEntities(anyString(), anyString(), any(SessionState.class))).thenReturn(ext);
+        Mockito.when(sarvamClient.synthesizeSpeech(anyString())).thenReturn("dummyAudio");
+
+        VoiceResponse response = voiceService.processVoice(mockFile, state.getSessionId());
+
+        assertNull(state.getDepartment());
+        assertEquals("General Physician", state.getSuggestedDepartment());
+        assertEquals("department_suggestion", state.getLastAskedField());
+        assertTrue(response.getText().contains("जनरल फिजिशियन"));
+    }
+
+    @Test
+    public void testExpandedSymptomRouting_Headache() throws Exception {
+        String sessionId = "test-symptom-headache";
+        SessionState state = sessionManagerService.getOrCreateSession(sessionId);
+        state.setPatientName("Shardul");
+        state.setMode(SessionState.Mode.BOOKING);
+        state.setLastAskedField("department");
+
+        MultipartFile mockFile = Mockito.mock(MultipartFile.class);
+        Mockito.when(mockFile.isEmpty()).thenReturn(false);
+
+        Mockito.when(sarvamClient.transcribeAudio(any())).thenReturn("मेरे सिर में दर्द है");
+        LlmExtractionResponse ext = new LlmExtractionResponse();
+        ext.setIntent("PROVIDE_INFO");
+        Mockito.when(groqClient.extractGroqEntities(anyString(), anyString(), any(SessionState.class))).thenReturn(ext);
+        Mockito.when(sarvamClient.synthesizeSpeech(anyString())).thenReturn("dummyAudio");
+
+        VoiceResponse response = voiceService.processVoice(mockFile, state.getSessionId());
+
+        assertNull(state.getDepartment());
+        assertEquals("General Physician", state.getSuggestedDepartment());
+        assertEquals("department_suggestion", state.getLastAskedField());
+        assertTrue(response.getText().contains("जनरल फिजिशियन"));
+    }
+
+    @Test
+    public void testDynamicGreeting_TimeAware() throws Exception {
+        String sessionId = "test-dynamic-greeting";
+        SessionState state = sessionManagerService.getOrCreateSession(sessionId);
+        state.setPatientName("Shardul");
+        
+        // Call processVoice with empty/null audio to trigger greeting
+        Mockito.when(sarvamClient.synthesizeSpeech(anyString())).thenReturn("dummyAudio");
+        
+        VoiceResponse response = voiceService.processVoice(null, state.getSessionId());
+        
+        // Assert that the response contains the personalized greeting with Shardul and one of the greeting words
+        assertTrue(response.getText().contains("शार्दुल जी"));
+        assertTrue(response.getText().contains("मैं आपकी क्या मदद कर सकती हूँ"));
+        
+        // Also assert greeting done
+        assertTrue(state.isGreetingDone());
+    }
 }

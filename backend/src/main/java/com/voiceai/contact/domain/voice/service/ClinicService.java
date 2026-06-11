@@ -102,11 +102,36 @@ public class ClinicService {
                 int slotStart = timeNormalizationService.parseToMinutes((String) doc.get("start"));
                 int slotEnd   = timeNormalizationService.parseToMinutes((String) doc.get("end"));
                 int requested = time.getHour() * 60 + time.getMinute();
-                return requested >= slotStart && requested < slotEnd;
+                return requested >= slotStart && requested <= slotEnd;
             } catch (Exception e) {
                 return true;
             }
         }
         return true;
+    }
+
+    public Map<String, Object> getWorkingDoctor(SessionState state) {
+        if (state.getDepartment() == null || state.getDate() == null) return null;
+        String dayOfWeek = speechFormatter.getDayOfWeek(state.getDate());
+        if (dayOfWeek == null) return null;
+        String matchedDept = null;
+        for (String dept : ClinicConfig.CLINIC_SCHEDULE.keySet()) {
+            if (dept.equalsIgnoreCase(state.getDepartment()) || dept.toLowerCase().contains(state.getDepartment().toLowerCase())) {
+                matchedDept = dept;
+                break;
+            }
+        }
+        if (matchedDept == null) return null;
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> doctors = (List<Map<String, Object>>) ClinicConfig.CLINIC_SCHEDULE.get(matchedDept);
+        if (doctors == null) return null;
+        for (Map<String, Object> doc : doctors) {
+            @SuppressWarnings("unchecked")
+            List<String> days = (List<String>) doc.get("days");
+            if (days.contains(dayOfWeek)) {
+                return doc;
+            }
+        }
+        return null;
     }
 }
