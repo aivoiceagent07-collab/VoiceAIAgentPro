@@ -509,4 +509,178 @@ public class AccuracyTest {
         // Also assert greeting done
         assertTrue(state.isGreetingDone());
     }
+
+    // ─────────────────────────────────────────────────────────────
+    // STT Safety Regression Tests
+    // ─────────────────────────────────────────────────────────────
+
+    /**
+     * Test 1: Valid STT transcript → normal booking flow proceeds.
+     */
+    @Test
+    public void testSttSafety_ValidTranscript_NormalFlow() throws Exception {
+        String sessionId = "stt-safety-1";
+        SessionState state = sessionManagerService.getOrCreateSession(sessionId);
+        state.setGreetingDone(true);
+        state.setMode(SessionState.Mode.BOOKING);
+
+        MultipartFile mockFile = Mockito.mock(MultipartFile.class);
+        Mockito.when(mockFile.isEmpty()).thenReturn(false);
+        Mockito.when(mockFile.getSize()).thenReturn(12345L);
+        Mockito.when(mockFile.getContentType()).thenReturn("audio/webm");
+        Mockito.when(mockFile.getOriginalFilename()).thenReturn("audio.webm");
+
+        Mockito.when(sarvamClient.transcribeAudio(any())).thenReturn("मेरा नाम राहुल है");
+        LlmExtractionResponse ext = new LlmExtractionResponse();
+        ext.setIntent("PROVIDE_INFO");
+        ext.setName("Rahul");
+        Mockito.when(groqClient.extractGroqEntities(anyString(), anyString(), any(SessionState.class))).thenReturn(ext);
+        Mockito.when(groqClient.generateGroqResponse(anyString())).thenReturn("ठीक है");
+        Mockito.when(sarvamClient.synthesizeSpeech(anyString())).thenReturn("dummyAudio");
+
+        VoiceResponse response = voiceService.processVoice(mockFile, state.getSessionId());
+
+        // Booking flow must have been invoked — response is not a retry message
+        assertNotNull(response);
+        assertFalse(response.getText().contains("दोबारा बोलें"), "Valid transcript should NOT trigger retry");
+        assertFalse(response.getText().contains("फिर से प्रयास"), "Valid transcript should NOT trigger retry");
+    }
+
+    /**
+     * Test 2: STT throws exception (timeout) → retry response returned, state unchanged.
+     */
+    @Test
+    public void testSttSafety_SttException_ReturnsRetry_StateUnchanged() throws Exception {
+        String sessionId = "stt-safety-2";
+        SessionState state = sessionManagerService.getOrCreateSession(sessionId);
+        state.setGreetingDone(true);
+        state.setMode(SessionState.Mode.BOOKING);
+        state.setPatientName("Priya");
+        String originalDept = state.getDepartment();
+        String originalDate = state.getDate();
+
+        MultipartFile mockFile = Mockito.mock(MultipartFile.class);
+        Mockito.when(mockFile.isEmpty()).thenReturn(false);
+        Mockito.when(mockFile.getSize()).thenReturn(5000L);
+        Mockito.when(mockFile.getContentType()).thenReturn("audio/webm");
+        Mockito.when(mockFile.getOriginalFilename()).thenReturn("audio.webm");
+
+        // STT throws — simulates network timeout
+        Mockito.when(sarvamClient.transcribeAudio(any())).thenThrow(new RuntimeException("Connection timed out"));
+        Mockito.when(sarvamClient.synthesizeSpeech(anyString())).thenReturn("dummyAudio");
+
+        VoiceResponse response = voiceService.processVoice(mockFile, state.getSessionId());
+
+        // Must return retry response
+        assertTrue(response.getText().contains("दोबारा बोलें") || response.getText().contains("फिर से"),
+                "STT timeout must return retry response");
+
+        // State must be completely unchanged
+        assertEquals("Priya", state.getPatientName(), "Patient name must not change after STT failure");
+        assertEquals(originalDept, state.getDepartment(), "Department must not change after STT failure");
+        assertEquals(originalDate, state.getDate(), "Date must not change after STT failure");
+        assertFalse(response.isEndCall(), "STT failure must not end the call");
+    }
+
+    /**
+     * Test 3: STT returns null → retry response, state unchanged.
+     */
+    @Test
+    public void testSttSafety_NullTranscript_ReturnsRetry_StateUnchanged() throws Exception {
+        String sessionId = "stt-safety-3";
+        SessionState state = sessionManagerService.getOrCreateSession(sessionId);
+        state.setGreetingDone(true);
+        state.setMode(SessionState.Mode.BOOKING);
+        state.setPatientName("Amit");
+        state.setDepartment("Cardiology");
+
+        MultipartFile mockFile = Mockito.mock(MultipartFile.class);
+        Mockito.when(mockFile.isEmpty()).thenReturn(false);
+        Mockito.when(mockFile.getSize()).thenReturn(0L);
+        Mockito.when(mockFile.getContentType()).thenReturn("audio/wav");
+        Mockito.when(mockFile.getOriginalFilename()).thenReturn("audio.wav");
+
+        Mockito.when(sarvamClient.transcribeAudio(any())).thenReturn(null);
+        Mockito.when(sarvamClient.synthesizeSpeech(anyString())).thenReturn("dummyAudio");
+
+        VoiceResponse response = voiceService.processVoice(mockFile, state.getSessionId());
+
+        assertTrue(response.getText().contains("सुनाई नहीं") || response.getText().contains("दोबारा बोलें") || response.getText().contains("फिर से"),
+                "Null transcript must return retry response");
+        assertEquals("Amit", state.getPatientName(), "Patient name must not change after null transcript");
+        assertEquals("Cardiology", state.getDepartment(), "Department must not change after null transcript");
+    }
+
+    /**
+     * Test 4: STT returns empty string → retry response, state unchanged.
+     */
+    @Test
+    public void testSttSafety_EmptyTranscript_ReturnsRetry_StateUnchanged() throws Exception {
+        String sessionId = "stt-safety-4";
+        SessionState state = sessionManagerService.getOrCreateSession(sessionId);
+        state.setGreetingDone(true);
+        state.setMode(SessionState.Mode.BOOKING);
+        state.setPatientName("Neha");
+        state.setDepartment("Dermatology");
+        state.setDate("2026-06-20");
+
+        MultipartFile mockFile = Mockito.mock(MultipartFile.class);
+        Mockito.when(mockFile.isEmpty()).thenReturn(false);
+        Mockito.when(mockFile.getSize()).thenReturn(10L);
+        Mockito.when(mockFile.getContentType()).thenReturn("audio/mp4");
+        Mockito.when(mockFile.getOriginalFilename()).thenReturn("audio.mp4");
+
+        Mockito.when(sarvamClient.transcribeAudio(any())).thenReturn("   "); // whitespace only
+        Mockito.when(sarvamClient.synthesizeSpeech(anyString())).thenReturn("dummyAudio");
+
+        VoiceResponse response = voiceService.processVoice(mockFile, state.getSessionId());
+
+        assertTrue(response.getText().contains("सुनाई नहीं") || response.getText().contains("दोबारा बोलें") || response.getText().contains("फिर से"),
+                "Empty/whitespace transcript must return retry response");
+        assertEquals("Neha", state.getPatientName(), "State must not change after empty transcript");
+        assertEquals("Dermatology", state.getDepartment(), "Department must not change after empty transcript");
+        assertEquals("2026-06-20", state.getDate(), "Date must not change after empty transcript");
+    }
+
+    /**
+     * Test 5: Transcript = "नमस्ते, यह एक टेस्ट है।" → rejected, no state transition, no slot extraction.
+     */
+    @Test
+    public void testSttSafety_PlaceholderTranscript_RejectedNoStateTransition() throws Exception {
+        String sessionId = "stt-safety-5";
+        SessionState state = sessionManagerService.getOrCreateSession(sessionId);
+        state.setGreetingDone(true);
+        state.setMode(SessionState.Mode.BOOKING);
+        state.setPatientName("Vikram");
+        String snapshotDept = state.getDepartment();
+        String snapshotDate = state.getDate();
+        String snapshotLastAsked = state.getLastAskedField();
+
+        MultipartFile mockFile = Mockito.mock(MultipartFile.class);
+        Mockito.when(mockFile.isEmpty()).thenReturn(false);
+        Mockito.when(mockFile.getSize()).thenReturn(1024L);
+        Mockito.when(mockFile.getContentType()).thenReturn("audio/webm");
+        Mockito.when(mockFile.getOriginalFilename()).thenReturn("audio.webm");
+
+        // The bug: STT was returning this fabricated string via fallback
+        Mockito.when(sarvamClient.transcribeAudio(any())).thenReturn("नमस्ते, यह एक टेस्ट है।");
+        Mockito.when(sarvamClient.synthesizeSpeech(anyString())).thenReturn("dummyAudio");
+
+        VoiceResponse response = voiceService.processVoice(mockFile, state.getSessionId());
+
+        // Must be rejected with retry response
+        assertTrue(response.getText().contains("दोबारा बोलें") || response.getText().contains("स्पष्ट नहीं"),
+                "Placeholder transcript must return retry response");
+
+        // No state must have changed
+        assertEquals("Vikram", state.getPatientName(), "Name must not change after placeholder transcript");
+        assertEquals(snapshotDept, state.getDepartment(), "Department must not change after placeholder transcript");
+        assertEquals(snapshotDate, state.getDate(), "Date must not change after placeholder transcript");
+        assertEquals(snapshotLastAsked, state.getLastAskedField(), "LastAskedField must not change after placeholder transcript");
+        assertFalse(response.isEndCall(), "Placeholder transcript must not end the call");
+
+        // Groq must NOT have been called
+        Mockito.verify(groqClient, Mockito.never()).extractGroqEntities(anyString(), anyString(), any(SessionState.class));
+        Mockito.verify(groqClient, Mockito.never()).generateGroqResponse(anyString());
+    }
 }

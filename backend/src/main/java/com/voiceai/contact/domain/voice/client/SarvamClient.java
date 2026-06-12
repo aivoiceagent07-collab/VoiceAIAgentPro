@@ -42,16 +42,39 @@ public class SarvamClient {
     public String transcribeAudio(MultipartFile audio) throws Exception {
         String url = "https://api.sarvam.ai/speech-to-text";
 
+        String contentType = audio.getContentType() != null ? audio.getContentType() : "audio/wav";
+        String originalFilename = audio.getOriginalFilename();
+
+        // Derive a safe filename with correct extension for mobile audio formats.
+        // Mobile browsers often send audio/webm, audio/mp4, audio/aac without a proper filename.
+        String safeFilename;
+        if (originalFilename != null && !originalFilename.isBlank()) {
+            safeFilename = originalFilename;
+        } else {
+            safeFilename = switch (contentType) {
+                case "audio/webm"       -> "audio.webm";
+                case "audio/mp4"        -> "audio.mp4";
+                case "audio/aac"        -> "audio.aac";
+                case "audio/mpeg"       -> "audio.mp3";
+                case "audio/ogg"        -> "audio.ogg";
+                default                 -> "audio.wav";
+            };
+        }
+
+        log.info("[STT] Sending to Sarvam. ContentType={}, DerivedFilename={}, SizeBytes={}",
+                contentType, safeFilename, audio.getSize());
+
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.MULTIPART_FORM_DATA);
         headers.set("api-subscription-key", sarvamApiKey);
 
         MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
 
+        final String finalFilename = safeFilename;
         ByteArrayResource fileAsResource = new ByteArrayResource(audio.getBytes()) {
             @Override
             public String getFilename() {
-                return audio.getOriginalFilename() != null ? audio.getOriginalFilename() : "audio.wav";
+                return finalFilename;
             }
         };
 
@@ -65,14 +88,21 @@ public class SarvamClient {
             JsonNode root = mapper.readTree(response.getBody());
 
             if (root.has("transcript")) {
-                return root.get("transcript").asText();
+                String transcript = root.get("transcript").asText();
+                log.info("[STT] Sarvam returned transcript field. Length={}", transcript.length());
+                return transcript;
             } else if (root.has("text")) {
-                return root.get("text").asText();
+                String text = root.get("text").asText();
+                log.info("[STT] Sarvam returned text field. Length={}", text.length());
+                return text;
             } else {
-                return root.toString();
+                log.warn("[STT] Sarvam returned unexpected response structure: {}", root.toString());
+                throw new Exception("Unexpected STT response: " + root.toString());
             }
         } catch (HttpClientErrorException e) {
-            throw new Exception("Client Error: " + e.getResponseBodyAsString());
+            log.error("[STT] Sarvam HTTP client error. Status={}, Body={}",
+                    e.getStatusCode(), e.getResponseBodyAsString());
+            throw new Exception("STT Client Error: " + e.getResponseBodyAsString());
         }
     }
 

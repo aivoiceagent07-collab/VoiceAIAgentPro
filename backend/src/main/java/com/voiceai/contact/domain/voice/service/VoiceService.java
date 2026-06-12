@@ -98,29 +98,66 @@ public class VoiceService {
         }
 
         // 2. STT (Speech to Text) via Sarvam
-        log.debug("Transcribing audio...");
+        // Log audio metadata for diagnostics
+        log.info("[STT] STT Request Started. AudioSize={} bytes, ContentType={}, Filename={}",
+                audio.getSize(),
+                audio.getContentType() != null ? audio.getContentType() : "unknown",
+                audio.getOriginalFilename() != null ? audio.getOriginalFilename() : "unknown");
+
         String transcription;
         long startStt = System.currentTimeMillis();
         try {
             transcription = sarvamClient.transcribeAudio(audio);
             metricsService.recordStt(System.currentTimeMillis() - startStt);
-            log.debug("Transcription: {}", transcription);
+            log.info("[STT] STT Success. TranscriptLength={}, TranscriptContent='{}'",
+                    transcription != null ? transcription.length() : 0, transcription);
         } catch (Exception e) {
-            log.error("Failed STT: {}", e.getMessage());
             metricsService.recordStt(System.currentTimeMillis() - startStt);
-            transcription = "नमस्ते, यह एक टेस्ट है।"; // Fallback text
-        }
-
-        if (transcription == null || transcription.trim().isEmpty()) {
-            log.debug("No speech detected. Returning fallback audio directly and skipping LLM.");
-            String fallbackMsg = "मुझे आपकी आवाज़ सुनाई नहीं दी। कृपया फिर से प्रयास करें।";
+            log.error("[STT] STT Failure. Error='{}'. Returning retry response. State NOT modified.", e.getMessage());
+            // CRITICAL: Do NOT fabricate a transcript. Return retry response immediately.
+            // Booking state, slots, conversation history are all left untouched.
+            String retryMsg = "माफ़ कीजिए, मुझे आपकी आवाज़ स्पष्ट नहीं मिली। कृपया दोबारा बोलें।";
             long startTts = System.currentTimeMillis();
-            String audioBase64 = sarvamClient.synthesizeSpeech(fallbackMsg);
+            String audioBase64;
+            try {
+                audioBase64 = sarvamClient.synthesizeSpeech(retryMsg);
+            } catch (Exception ttsEx) {
+                log.error("[STT] TTS also failed for retry message: {}", ttsEx.getMessage());
+                audioBase64 = "";
+            }
             metricsService.recordTts(System.currentTimeMillis() - startTts);
             metricsService.recordRequest(System.currentTimeMillis() - startReqTime);
-            log.info("[METRICS] Processed empty transcription fallback. Latency={} ms", System.currentTimeMillis() - startReqTime);
-            return new VoiceResponse("", fallbackMsg, audioBase64, false, state.getSessionId());
+            log.info("[METRICS] STT failure – retry response sent. Latency={} ms", System.currentTimeMillis() - startReqTime);
+            return new VoiceResponse("", retryMsg, audioBase64, false, state.getSessionId());
         }
+
+        // Reject null or empty transcription – state unchanged
+        if (transcription == null || transcription.trim().isEmpty()) {
+            log.warn("[STT] Empty transcript received from STT. Returning retry response. State NOT modified.");
+            String retryMsg = "मुझे आपकी आवाज़ सुनाई नहीं दी। कृपया फिर से प्रयास करें।";
+            long startTts = System.currentTimeMillis();
+            String audioBase64 = sarvamClient.synthesizeSpeech(retryMsg);
+            metricsService.recordTts(System.currentTimeMillis() - startTts);
+            metricsService.recordRequest(System.currentTimeMillis() - startReqTime);
+            log.info("[METRICS] Empty transcript – retry response sent. Latency={} ms", System.currentTimeMillis() - startReqTime);
+            return new VoiceResponse("", retryMsg, audioBase64, false, state.getSessionId());
+        }
+
+        // Reject known placeholder/test strings – never allow these to enter booking flow
+        if (isPlaceholderTranscript(transcription)) {
+            log.error("[STT] PLACEHOLDER transcript detected='{}'. Rejecting immediately. State NOT modified.", transcription);
+            String retryMsg = "माफ़ कीजिए, मुझे आपकी आवाज़ स्पष्ट नहीं मिली। कृपया दोबारा बोलें।";
+            long startTts = System.currentTimeMillis();
+            String audioBase64 = sarvamClient.synthesizeSpeech(retryMsg);
+            metricsService.recordTts(System.currentTimeMillis() - startTts);
+            metricsService.recordRequest(System.currentTimeMillis() - startReqTime);
+            log.info("[METRICS] Placeholder transcript rejected – retry response sent. Latency={} ms", System.currentTimeMillis() - startReqTime);
+            return new VoiceResponse("", retryMsg, audioBase64, false, state.getSessionId());
+        }
+
+        log.info("[STT] Transcript accepted. Length={}, ExpectedField={}",
+                transcription.length(),
+                state.getLastAskedField() != null ? state.getLastAskedField() : "none");
 
         // Script normalization (Bengali → Devanagari/Canonical terms)
         transcription = transcription
@@ -956,6 +993,23 @@ public class VoiceService {
         } catch (Exception e) {
             return false;
         }
+    }
+
+    /**
+     * Returns true if the given transcript is a known placeholder, test, or fabricated string
+     * that must never be processed by the booking flow.
+     */
+    private boolean isPlaceholderTranscript(String transcript) {
+        if (transcript == null) return true;
+        String normalized = transcript.trim().toLowerCase();
+        return normalized.equals("नमस्ते, यह एक टेस्ट है।")
+            || normalized.equals("नमस्ते, यह एक टेस्ट है")
+            || normalized.equals("test")
+            || normalized.equals("dummy")
+            || normalized.equals("sample")
+            || normalized.equals("default transcription")
+            || normalized.equals("mock transcription")
+            || normalized.equals("fallback");
     }
 
     private String getNextExpectedField(SessionState state) {
