@@ -18,9 +18,12 @@ import org.springframework.web.client.RestTemplate;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @Service
 public class EmailService {
@@ -28,11 +31,11 @@ public class EmailService {
     private final JavaMailSender mailSender;
     private final RestTemplate restTemplate;
 
-    @Value("${spring.mail.username:}")
-    private String senderEmail; // Authentication email used to send
+    @Value("${SENDER_EMAIL:${spring.mail.username:}}")
+    private String senderEmail; // From address used in outgoing emails
 
     @Value("${RECEIVER_EMAIL:${spring.mail.username:}}")
-    private String toEmail; // Inbox receiving the notifications
+    private String receiverEmailRaw; // Comma-separated list of recipient emails
 
     @Value("${RESEND_API_KEY:}")
     private String resendApiKey;
@@ -69,7 +72,7 @@ public class EmailService {
                 senderName = senderName.substring(0, 50);
             }
             helper.setFrom(new InternetAddress(senderEmail, senderName + " via Application"));
-            helper.setTo(toEmail);
+            helper.setTo(getReceiverEmails().toArray(new String[0]));
             helper.setSubject(subject);
             helper.setText(htmlBody, true);
             if (replyTo != null) {
@@ -111,7 +114,7 @@ public class EmailService {
                 senderName = senderName.substring(0, 50);
             }
             helper.setFrom(new InternetAddress(senderEmail, senderName + " via Application"));
-            helper.setTo(toEmail);
+            helper.setTo(getReceiverEmails().toArray(new String[0]));
             helper.setSubject(subject);
             helper.setText(htmlBody, true);
             if (replyTo != null) {
@@ -137,7 +140,7 @@ public class EmailService {
                     : "AI Voice Agent Form <onboarding@resend.dev>";
             body.put("from", fromAddress);
             
-            body.put("to", Collections.singletonList(toEmail));
+            body.put("to", getReceiverEmails());
             body.put("subject", subject);
             body.put("html", htmlBody);
             
@@ -150,6 +153,19 @@ public class EmailService {
         } catch (Exception e) {
             throw new RuntimeException("Resend API failed to send email: " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * Parses the RECEIVER_EMAIL env var (comma-separated) into a List of trimmed email addresses.
+     */
+    private List<String> getReceiverEmails() {
+        if (receiverEmailRaw == null || receiverEmailRaw.trim().isEmpty()) {
+            return Collections.emptyList();
+        }
+        return Arrays.stream(receiverEmailRaw.split(","))
+                .map(String::trim)
+                .filter(e -> !e.isEmpty())
+                .collect(Collectors.toList());
     }
 
     private String buildHtmlEmailBody(String name, String email, String phone, String company, String primaryGoal, String agentTypes, String messageText, String submittedFrom) {

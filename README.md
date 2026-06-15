@@ -84,9 +84,17 @@ To run the application locally, follow these simplified steps. For more granular
 
 ---
 
-## 🗒 Project Tracker & Work Log
+## 📊 Project Management
 
-Track our day-to-day progress, features deployed, and next objectives in the **[Daily Work Log](file:///Users/kalyansadhukhan/agentic-ai-world-voice/documentation/work-log.md)**.
+Track engineering progress, decisions, blockers, and daily reports through the `docs/` system:
+
+| Document | Purpose |
+|---|---|
+| [Dashboard](docs/dashboard.md) | Single source of truth — phase, progress, sprint goals, blockers |
+| [Daily Reports](docs/reports/) | Per-day engineering activity logs |
+| [Weekly Summaries](docs/weekly/) | Weekly accomplishments, risks, and goals |
+| [Decisions Log](docs/decisions.md) | All architectural and technical decisions (ADRs) |
+| [Blockers Log](docs/blockers.md) | Open and resolved blockers with severity and owner |
 
 ---
 
