@@ -47,10 +47,14 @@ public class EmailService {
 
     public void sendContactEmail(ContactFormRequest request) {
         String safeName = (request.getName() != null && !request.getName().isEmpty()) ? request.getName() : "Unknown";
-        String safeForm = (request.getSubmittedFrom() != null && !request.getSubmittedFrom().isEmpty()) ? request.getSubmittedFrom() : "Website";
+        String safeForm = (request.getSubmittedFrom() != null && !request.getSubmittedFrom().isEmpty())
+                ? request.getSubmittedFrom()
+                : "Website";
         String subject = "New Inquiry from " + safeName + " (" + safeForm + ")";
-        String htmlBody = buildHtmlEmailBody(request.getName(), request.getEmail(), null, request.getCompany(), null, null, request.getMessage(), request.getSubmittedFrom());
-        String replyTo = (request.getEmail() != null && request.getEmail().contains("@") && request.getEmail().contains(".")) ? request.getEmail() : null;
+        String htmlBody = buildHtmlEmailBody(request.getName(), request.getEmail(), null, request.getCompany(), null,
+                null, request.getMessage(), request.getSubmittedFrom());
+        String replyTo = (request.getEmail() != null && request.getEmail().contains("@")
+                && request.getEmail().contains(".")) ? request.getEmail() : null;
 
         if (resendApiKey != null && !resendApiKey.trim().isEmpty()) {
             sendViaResend(subject, htmlBody, replyTo);
@@ -64,7 +68,7 @@ public class EmailService {
         try {
             MimeMessage message = mailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
-            
+
             String senderName = (request.getName() != null && !request.getName().trim().isEmpty())
                     ? request.getName().trim()
                     : "User";
@@ -86,13 +90,17 @@ public class EmailService {
 
     public void sendEnhancedInquiryEmail(EnhancedFormRequest request) {
         String safeName = (request.getName() != null && !request.getName().isEmpty()) ? request.getName() : "Unknown";
-        String safeForm = (request.getSubmittedFrom() != null && !request.getSubmittedFrom().isEmpty()) ? request.getSubmittedFrom() : "Website";
+        String safeForm = (request.getSubmittedFrom() != null && !request.getSubmittedFrom().isEmpty())
+                ? request.getSubmittedFrom()
+                : "Website";
         String subject = "New Inquiry from " + safeName + " (" + safeForm + ")";
-        String agentTypes = (request.getAgentTypes() != null && !request.getAgentTypes().isEmpty()) 
-                ? String.join(", ", request.getAgentTypes()) 
+        String agentTypes = (request.getAgentTypes() != null && !request.getAgentTypes().isEmpty())
+                ? String.join(", ", request.getAgentTypes())
                 : null;
-        String htmlBody = buildHtmlEmailBody(request.getName(), request.getEmail(), null, request.getCompany(), request.getPrimaryGoal(), agentTypes, request.getMessage(), request.getSubmittedFrom());
-        String replyTo = (request.getEmail() != null && request.getEmail().contains("@") && request.getEmail().contains(".")) ? request.getEmail() : null;
+        String htmlBody = buildHtmlEmailBody(request.getName(), request.getEmail(), null, request.getCompany(),
+                request.getPrimaryGoal(), agentTypes, request.getMessage(), request.getSubmittedFrom());
+        String replyTo = (request.getEmail() != null && request.getEmail().contains("@")
+                && request.getEmail().contains(".")) ? request.getEmail() : null;
 
         if (resendApiKey != null && !resendApiKey.trim().isEmpty()) {
             sendViaResend(subject, htmlBody, replyTo);
@@ -106,7 +114,7 @@ public class EmailService {
         try {
             MimeMessage message = mailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
-            
+
             String senderName = (request.getName() != null && !request.getName().trim().isEmpty())
                     ? request.getName().trim()
                     : "User";
@@ -133,17 +141,18 @@ public class EmailService {
             headers.setBearerAuth(resendApiKey);
 
             Map<String, Object> body = new HashMap<>();
-            
-            // If senderEmail is configured with a custom domain, use it. Otherwise, default to sandbox onboarding.
+
+            // If senderEmail is configured with a custom domain, use it. Otherwise, default
+            // to sandbox onboarding.
             String fromAddress = (senderEmail != null && senderEmail.contains("@"))
                     ? "AI Voice Agent Form <" + senderEmail + ">"
                     : "AI Voice Agent Form <onboarding@resend.dev>";
             body.put("from", fromAddress);
-            
+
             body.put("to", getReceiverEmails());
             body.put("subject", subject);
             body.put("html", htmlBody);
-            
+
             if (replyTo != null) {
                 body.put("reply_to", replyTo);
             }
@@ -156,7 +165,8 @@ public class EmailService {
     }
 
     /**
-     * Parses the RECEIVER_EMAIL env var (comma-separated) into a List of trimmed email addresses.
+     * Parses the RECEIVER_EMAIL env var (comma-separated) into a List of trimmed
+     * email addresses.
      */
     private List<String> getReceiverEmails() {
         if (receiverEmailRaw == null || receiverEmailRaw.trim().isEmpty()) {
@@ -168,48 +178,51 @@ public class EmailService {
                 .collect(Collectors.toList());
     }
 
-    private String buildHtmlEmailBody(String name, String email, String phone, String company, String primaryGoal, String agentTypes, String messageText, String submittedFrom) {
+    private String buildHtmlEmailBody(String name, String email, String phone, String company, String primaryGoal,
+            String agentTypes, String messageText, String submittedFrom) {
         String safeName = (name != null && !name.isEmpty()) ? name : "N/A";
         String safeEmail = (email != null && !email.isEmpty()) ? email : "N/A";
         String safePhone = (phone != null && !phone.isEmpty()) ? phone : "N/A";
         String safeCompany = (company != null && !company.isEmpty()) ? company : "N/A";
         String safePrimaryGoal = (primaryGoal != null && !primaryGoal.isEmpty()) ? primaryGoal : "N/A";
         String safeAgentTypes = (agentTypes != null && !agentTypes.isEmpty()) ? agentTypes : "N/A";
-        String safeMessage = (messageText != null && !messageText.isEmpty()) ? messageText.replace("\n", "<br>") : "N/A";
+        String safeMessage = (messageText != null && !messageText.isEmpty()) ? messageText.replace("\n", "<br>")
+                : "N/A";
         String safeSubmittedFrom = (submittedFrom != null && !submittedFrom.isEmpty()) ? submittedFrom : "N/A";
 
         return "<!DOCTYPE html>\n" +
-               "<html>\n" +
-               "<body style=\"margin:0;padding:0;background-color:#f4f6f8;font-family:Arial,sans-serif;\">\n" +
-               "  <div style=\"max-width:600px;margin:20px auto;background:#ffffff;padding:24px;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.05);\">\n" +
-               "    \n" +
-               "    <h2 style=\"margin-top:0;color:#333;\">New Contact Form Submission</h2>\n" +
-               "    <hr style=\"border:none;border-top:1px solid #eee;margin:16px 0;\" />\n" +
-               "\n" +
-               "    <p><strong>Name:</strong> " + safeName + "</p>\n" +
-               "    <p><strong>Email:</strong> " + safeEmail + "</p>\n" +
-               "    <p><strong>Phone:</strong> " + safePhone + "</p>\n" +
-               "    <p><strong>Company:</strong> " + safeCompany + "</p>\n" +
-               "    <p><strong>Primary Goal:</strong> " + safePrimaryGoal + "</p>\n" +
-               "    <p><strong>Agent Types:</strong> " + safeAgentTypes + "</p>\n" +
-               "\n" +
-               "    <div style=\"margin-top:20px;\">\n" +
-               "      <p><strong>Message:</strong></p>\n" +
-               "      <div style=\"background:#f9f9f9;padding:15px;border-radius:6px;line-height:1.5;\">\n" +
-               "        " + safeMessage + "\n" +
-               "      </div>\n" +
-               "    </div>\n" +
-               "\n" +
-               "    <hr style=\"margin:20px 0;\" />\n" +
-               "\n" +
-               "    <p style=\"font-size:12px;color:#777;\">\n" +
-               "      Submitted from: " + safeSubmittedFrom + "<br/>\n" +
-               "      Timestamp: " + getCurrentTimestamp() + "\n" +
-               "    </p>\n" +
-               "\n" +
-               "  </div>\n" +
-               "</body>\n" +
-               "</html>";
+                "<html>\n" +
+                "<body style=\"margin:0;padding:0;background-color:#f4f6f8;font-family:Arial,sans-serif;\">\n" +
+                "  <div style=\"max-width:600px;margin:20px auto;background:#ffffff;padding:24px;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.05);\">\n"
+                +
+                "    \n" +
+                "    <h2 style=\"margin-top:0;color:#333;\">New Contact Form Submission</h2>\n" +
+                "    <hr style=\"border:none;border-top:1px solid #eee;margin:16px 0;\" />\n" +
+                "\n" +
+                "    <p><strong>Name:</strong> " + safeName + "</p>\n" +
+                "    <p><strong>Email:</strong> " + safeEmail + "</p>\n" +
+                "    <p><strong>Phone:</strong> " + safePhone + "</p>\n" +
+                "    <p><strong>Company:</strong> " + safeCompany + "</p>\n" +
+                "    <p><strong>Primary Goal:</strong> " + safePrimaryGoal + "</p>\n" +
+                "    <p><strong>Agent Types:</strong> " + safeAgentTypes + "</p>\n" +
+                "\n" +
+                "    <div style=\"margin-top:20px;\">\n" +
+                "      <p><strong>Message:</strong></p>\n" +
+                "      <div style=\"background:#f9f9f9;padding:15px;border-radius:6px;line-height:1.5;\">\n" +
+                "        " + safeMessage + "\n" +
+                "      </div>\n" +
+                "    </div>\n" +
+                "\n" +
+                "    <hr style=\"margin:20px 0;\" />\n" +
+                "\n" +
+                "    <p style=\"font-size:12px;color:#777;\">\n" +
+                "      Submitted from: " + safeSubmittedFrom + "<br/>\n" +
+                "      Timestamp: " + getCurrentTimestamp() + "\n" +
+                "    </p>\n" +
+                "\n" +
+                "  </div>\n" +
+                "</body>\n" +
+                "</html>";
     }
 
     private String getCurrentTimestamp() {
